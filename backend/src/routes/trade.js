@@ -42,7 +42,8 @@ router.post('/order', authMiddleware, tradeLimiter, async (req, res) => {
     res.json(result);
   } catch (err) {
     logger.error('Trade failed', { error: err.message, symbol, side, quantity });
-    res.status(500).json({ error: err.message });
+    const msg = err.message?.includes('Binance') ? err.message : 'Trade execution failed';
+    res.status(500).json({ error: msg });
   }
 });
 

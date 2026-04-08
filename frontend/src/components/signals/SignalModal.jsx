@@ -191,7 +191,7 @@ export default function SignalModal({ signal, pairs, obdData, klinesRef, onClose
             </div>
 
             {/* SL/TP price preview */}
-            {(slPercent || tpPercent) && (
+            {currentPrice && (slPercent || tpPercent) && (
               <div className="text-xs text-gray-500 mb-4 space-y-0.5">
                 {slPercent && (
                   <div>SL: ${(side === 'BUY'

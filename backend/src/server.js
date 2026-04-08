@@ -7,8 +7,8 @@ import { validateEnv, env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { prisma } from './db/prisma.js';
 import { initWebSocketHub } from './ws/hub.js';
-import { startOrderBookPolling } from './services/binance/orderbook.js';
-import { startBinanceWs } from './services/binance/websocket.js';
+import { startOrderBookPolling, stopOrderBookPolling } from './services/binance/orderbook.js';
+import { startBinanceWs, stopBinanceWs } from './services/binance/websocket.js';
 
 import authRoutes from './routes/auth.js';
 import pairsRoutes from './routes/pairs.js';
@@ -40,6 +40,12 @@ app.use('/api/stats', statsRoutes);
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
+});
+
+// Global error handler
+app.use((err, req, res, _next) => {
+  logger.error('Unhandled error', { error: err.message, stack: err.stack, path: req.path });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 const server = http.createServer(app);
@@ -101,7 +107,11 @@ OBD индикатор: значение 0-100, где >50 означает пр
 server.listen(env.port, async () => {
   logger.info(`Server running on port ${env.port}`);
 
-  await seedAdmin();
+  try {
+    await seedAdmin();
+  } catch (err) {
+    logger.error('Seed failed', { error: err.message });
+  }
 
   // Start Binance services
   startOrderBookPolling();
@@ -109,13 +119,14 @@ server.listen(env.port, async () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down...');
-  const { stopOrderBookPolling } = await import('./services/binance/orderbook.js');
-  const { stopBinanceWs } = await import('./services/binance/websocket.js');
+async function shutdown(signal) {
+  logger.info(`${signal} received, shutting down...`);
   stopOrderBookPolling();
   stopBinanceWs();
   server.close();
   await prisma.$disconnect();
   process.exit(0);
-});
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

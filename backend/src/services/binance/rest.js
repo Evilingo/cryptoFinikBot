@@ -24,8 +24,8 @@ function sign(params, secret) {
 
 async function privateRequest(method, path, params = {}) {
   const { apiKey, secret } = await getKeys();
-  params.timestamp = Date.now();
-  params.recvWindow = 5000;
+  params.timestamp = Date.now().toString();
+  params.recvWindow = '5000';
 
   const query = sign(params, secret);
   const url = `${BASE_URL}${path}?${query}`;
@@ -34,6 +34,15 @@ async function privateRequest(method, path, params = {}) {
     method,
     headers: { 'X-MBX-APIKEY': apiKey },
   });
+
+  if (!res.ok) {
+    let errMsg = `Binance HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      if (data.msg) errMsg = `Binance error ${data.code}: ${data.msg}`;
+    } catch {}
+    throw new Error(errMsg);
+  }
 
   const data = await res.json();
   if (data.code && data.code < 0) {
@@ -65,16 +74,56 @@ export async function getKlines(symbol, interval = '1m', limit = 100) {
   }));
 }
 
+// Cache symbol info for price/qty precision
+const symbolInfoCache = new Map();
+
+async function getSymbolInfo(symbol) {
+  if (symbolInfoCache.has(symbol)) return symbolInfoCache.get(symbol);
+
+  const url = `${BASE_URL}/api/v3/exchangeInfo?symbol=${symbol}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`exchangeInfo error: ${res.status}`);
+  const data = await res.json();
+  const info = data.symbols?.[0];
+  if (!info) throw new Error(`Symbol ${symbol} not found`);
+
+  const priceFilter = info.filters.find((f) => f.filterType === 'PRICE_FILTER');
+  const lotFilter = info.filters.find((f) => f.filterType === 'LOT_SIZE');
+
+  const result = {
+    pricePrecision: countDecimals(priceFilter?.tickSize || '0.01'),
+    qtyPrecision: countDecimals(lotFilter?.stepSize || '0.001'),
+  };
+
+  symbolInfoCache.set(symbol, result);
+  return result;
+}
+
+function countDecimals(str) {
+  const s = parseFloat(str).toString();
+  const dot = s.indexOf('.');
+  return dot === -1 ? 0 : s.length - dot - 1;
+}
+
+function formatPrice(price, precision) {
+  return parseFloat(price).toFixed(precision);
+}
+
 export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit }) {
+  const info = await getSymbolInfo(symbol);
+  const qtyStr = formatPrice(quantity, info.qtyPrecision);
+
   if (stopLoss && takeProfit) {
     const ocoSide = side === 'BUY' ? 'SELL' : 'BUY';
-    const data = await privateRequest('POST', '/api/v3/order/oco', {
+    const slippage = side === 'BUY' ? 0.999 : 1.001;
+
+    const data = await privateRequest('POST', '/api/v3/orderList/oco', {
       symbol,
       side: ocoSide,
-      quantity,
-      price: takeProfit,
-      stopPrice: stopLoss,
-      stopLimitPrice: (stopLoss * (side === 'BUY' ? 0.999 : 1.001)).toFixed(2),
+      quantity: qtyStr,
+      price: formatPrice(takeProfit, info.pricePrecision),
+      stopPrice: formatPrice(stopLoss, info.pricePrecision),
+      stopLimitPrice: formatPrice(stopLoss * slippage, info.pricePrecision),
       stopLimitTimeInForce: 'GTC',
     });
     logger.info('OCO order placed', { symbol, orderId: data.orderListId });
@@ -85,10 +134,10 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
     symbol,
     side,
     type: 'MARKET',
-    quantity,
+    quantity: qtyStr,
   });
 
-  const avgPrice = data.fills
+  const avgPrice = data.fills?.length
     ? data.fills.reduce((s, f) => s + parseFloat(f.price) * parseFloat(f.qty), 0)
       / data.fills.reduce((s, f) => s + parseFloat(f.qty), 0)
     : parseFloat(data.price || 0);

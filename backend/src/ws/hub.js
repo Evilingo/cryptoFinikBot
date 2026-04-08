@@ -47,7 +47,11 @@ export function broadcast(message) {
   const data = JSON.stringify(message);
   for (const client of clients) {
     if (client.readyState === 1) {
-      client.send(data);
+      try {
+        client.send(data);
+      } catch {
+        clients.delete(client);
+      }
     }
   }
 }

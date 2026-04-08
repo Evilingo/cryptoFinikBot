@@ -6,6 +6,7 @@ const api = axios.create({
 });
 
 let accessToken = null;
+let refreshPromise = null;
 
 export function setAccessToken(token) {
   accessToken = token;
@@ -28,17 +29,31 @@ api.interceptors.response.use(
     const original = error.config;
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
-      try {
-        const { data } = await axios.post('/api/auth/refresh', null, {
-          withCredentials: true,
-        });
-        accessToken = data.accessToken;
-        original.headers.Authorization = `Bearer ${accessToken}`;
-        return api(original);
-      } catch {
-        accessToken = null;
-        window.location.href = '/login';
+
+      // Prevent concurrent refresh attempts
+      if (!refreshPromise) {
+        refreshPromise = axios
+          .post('/api/auth/refresh', null, { withCredentials: true })
+          .then(({ data }) => {
+            accessToken = data.accessToken;
+            return accessToken;
+          })
+          .catch(() => {
+            accessToken = null;
+            window.location.href = '/login';
+            return null;
+          })
+          .finally(() => {
+            refreshPromise = null;
+          });
       }
+
+      const newToken = await refreshPromise;
+      if (newToken) {
+        original.headers.Authorization = `Bearer ${newToken}`;
+        return api(original);
+      }
+      return Promise.reject(error);
     }
     return Promise.reject(error);
   },

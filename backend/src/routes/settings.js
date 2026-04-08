@@ -5,19 +5,14 @@ import { encrypt } from '../config/crypto.js';
 
 const router = Router();
 
-function maskKey(val) {
-  if (!val) return '';
-  return val.length > 8 ? val.slice(0, 4) + '****' + val.slice(-4) : '****';
-}
-
 router.get('/', authMiddleware, async (req, res) => {
   const s = await prisma.settings.findUnique({ where: { id: 1 } });
   if (!s) return res.status(404).json({ error: 'Settings not found' });
 
   res.json({
     claudePrompt: s.claudePrompt,
-    binanceApiKey: maskKey(s.binanceApiKey),
-    binanceSecret: maskKey(s.binanceSecret),
+    binanceApiKey: s.binanceApiKey ? 'Configured ****' : 'Not set',
+    binanceSecret: s.binanceSecret ? 'Configured ****' : 'Not set',
     telegramToken: s.telegramToken ? '****' : '',
     telegramChatId: s.telegramChatId || '',
     dipThreshold: s.dipThreshold,

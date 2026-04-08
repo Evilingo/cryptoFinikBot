@@ -14,33 +14,49 @@ export default function Settings() {
   useEffect(() => {
     api.get('/settings').then(({ data }) => {
       setSettings(data);
-      setPrompt(data.claudePrompt);
-      setThreshold(data.dipThreshold);
+      setPrompt(data.claudePrompt || '');
+      setThreshold(data.dipThreshold ?? 10);
       setTgChatId(data.telegramChatId || '');
-    });
+    }).catch(() => toast.error('Failed to load settings'));
   }, []);
 
   const savePrompt = async () => {
-    await api.put('/settings/prompt', { prompt });
-    toast.success('Prompt saved');
+    try {
+      await api.put('/settings/prompt', { prompt });
+      toast.success('Prompt saved');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    }
   };
 
   const saveKeys = async () => {
     if (!apiKey || !secret) return toast.error('Both API Key and Secret required');
-    await api.put('/settings/keys', { apiKey, secret });
-    toast.success('Binance keys saved');
-    setApiKey('');
-    setSecret('');
+    try {
+      await api.put('/settings/keys', { apiKey, secret });
+      toast.success('Binance keys saved');
+      setApiKey('');
+      setSecret('');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    }
   };
 
   const saveTelegram = async () => {
-    await api.put('/settings/telegram', { token: tgToken || null, chatId: tgChatId || null });
-    toast.success('Telegram settings saved');
+    try {
+      await api.put('/settings/telegram', { token: tgToken || null, chatId: tgChatId || null });
+      toast.success('Telegram settings saved');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    }
   };
 
   const saveThreshold = async () => {
-    await api.put('/settings/threshold', { dipThreshold: Number(threshold) });
-    toast.success('Threshold saved');
+    try {
+      await api.put('/settings/threshold', { dipThreshold: Number(threshold) });
+      toast.success('Threshold saved');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    }
   };
 
   if (!settings) return <div className="text-gray-500">Loading...</div>;

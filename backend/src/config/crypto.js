@@ -3,7 +3,6 @@ import { env } from './env.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
-const TAG_LENGTH = 16;
 
 export function encrypt(text) {
   const key = Buffer.from(env.encryptionKey, 'hex');
@@ -16,8 +15,16 @@ export function encrypt(text) {
 }
 
 export function decrypt(data) {
+  if (!data || typeof data !== 'string') {
+    throw new Error('Invalid encrypted data: empty or not a string');
+  }
+  const parts = data.split(':');
+  if (parts.length !== 3) {
+    throw new Error('Invalid encrypted data format');
+  }
+
   const key = Buffer.from(env.encryptionKey, 'hex');
-  const [ivHex, tagHex, encrypted] = data.split(':');
+  const [ivHex, tagHex, encrypted] = parts;
   const iv = Buffer.from(ivHex, 'hex');
   const tag = Buffer.from(tagHex, 'hex');
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);

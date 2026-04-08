@@ -5,15 +5,8 @@ import { useMemo } from 'react';
  * Показывает bid/ask объёмы по ценовым уровням с цветовой интенсивностью.
  */
 export default function OrderBookHeatmap({ heatmap, midPrice }) {
-  if (!heatmap || heatmap.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-xs text-gray-600">
-        Waiting for order book data...
-      </div>
-    );
-  }
-
   const { maxBid, maxAsk, midIdx } = useMemo(() => {
+    if (!heatmap || heatmap.length === 0) return { maxBid: 1, maxAsk: 1, midIdx: 0 };
     let maxBid = 0;
     let maxAsk = 0;
     let midIdx = 0;
@@ -31,6 +24,14 @@ export default function OrderBookHeatmap({ heatmap, midPrice }) {
 
     return { maxBid: maxBid || 1, maxAsk: maxAsk || 1, midIdx };
   }, [heatmap, midPrice]);
+
+  if (!heatmap || heatmap.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-xs text-gray-600">
+        Waiting for order book data...
+      </div>
+    );
+  }
 
   // Show subset around mid price (±25 buckets)
   const displayRange = 25;

@@ -101,7 +101,7 @@ export default function Stats() {
                   className={`flex-1 h-8 rounded-sm ${
                     r.outcome === 'WIN' ? 'bg-accent-green' : r.outcome === 'LOSS' ? 'bg-accent-red' : 'bg-gray-600'
                   }`}
-                  title={`${r.pair.monitorSymbol} ${r.direction} ${r.outcome} ${r.outcomePnl}%`}
+                  title={`${r.pair?.monitorSymbol} ${r.direction} ${r.outcome} ${r.outcomePnl}%`}
                 />
               ))}
             </div>
@@ -110,7 +110,7 @@ export default function Stats() {
             <div className="space-y-1.5">
               {stats.recent.map((r) => (
                 <div key={r.id} className="flex items-center gap-3">
-                  <span className="w-10 text-xs text-gray-500">{r.pair.monitorSymbol.replace('USDC', '')}</span>
+                  <span className="w-10 text-xs text-gray-500">{r.pair?.monitorSymbol.replace('USDC', '')}</span>
                   <span className={`w-10 text-xs font-bold ${r.outcome === 'WIN' ? 'text-accent-green' : r.outcome === 'LOSS' ? 'text-accent-red' : 'text-gray-400'}`}>
                     {r.outcome}
                   </span>

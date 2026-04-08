@@ -5,6 +5,8 @@ export function useWebSocket(onMessage) {
   const wsRef = useRef(null);
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef(null);
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
 
   const connect = useCallback(() => {
     const token = getAccessToken();
@@ -24,7 +26,7 @@ export function useWebSocket(onMessage) {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        onMessage?.(data);
+        onMessageRef.current?.(data);
       } catch {}
     };
 
@@ -38,7 +40,7 @@ export function useWebSocket(onMessage) {
     };
 
     wsRef.current = ws;
-  }, [onMessage]);
+  }, []);
 
   useEffect(() => {
     connect();

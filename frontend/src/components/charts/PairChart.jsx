@@ -61,13 +61,15 @@ export default function PairChart({ symbol, klineRef }) {
       .catch(() => {});
 
     // Resize observer
+    const node = containerRef.current;
     const observer = new ResizeObserver(() => {
+      if (!node) return;
       chart.applyOptions({
-        width: containerRef.current.clientWidth,
-        height: containerRef.current.clientHeight,
+        width: node.clientWidth,
+        height: node.clientHeight,
       });
     });
-    observer.observe(containerRef.current);
+    observer.observe(node);
 
     return () => {
       observer.disconnect();

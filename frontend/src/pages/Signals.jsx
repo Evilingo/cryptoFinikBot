@@ -30,7 +30,7 @@ export default function Signals() {
           Previous
         </button>
         <span className="text-gray-400 text-sm">
-          {page * limit + 1}–{Math.min((page + 1) * limit, total)} of {total}
+          {total === 0 ? '0' : `${page * limit + 1}–${Math.min((page + 1) * limit, total)}`} of {total}
         </span>
         <button
           onClick={() => setPage((p) => p + 1)}

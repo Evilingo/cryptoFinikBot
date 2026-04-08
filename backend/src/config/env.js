@@ -1,6 +1,5 @@
 const required = [
   'DATABASE_URL',
-  'REDIS_URL',
   'JWT_SECRET',
   'JWT_REFRESH_SECRET',
   'ENCRYPTION_KEY',
@@ -14,6 +13,11 @@ export function validateEnv() {
   if (missing.length > 0) {
     throw new Error(`Missing required env variables: ${missing.join(', ')}`);
   }
+
+  const ek = process.env.ENCRYPTION_KEY;
+  if (!/^[0-9a-f]{64}$/i.test(ek)) {
+    throw new Error('ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)');
+  }
 }
 
 export const env = {
@@ -24,7 +28,7 @@ export const env = {
   get jwtRefreshSecret() { return process.env.JWT_REFRESH_SECRET; },
   get encryptionKey() { return process.env.ENCRYPTION_KEY; },
   get databaseUrl() { return process.env.DATABASE_URL; },
-  get redisUrl() { return process.env.REDIS_URL; },
+  get redisUrl() { return process.env.REDIS_URL || ''; },
   get anthropicApiKey() { return process.env.ANTHROPIC_API_KEY; },
   get adminUsername() { return process.env.ADMIN_USERNAME; },
   get adminPassword() { return process.env.ADMIN_PASSWORD; },

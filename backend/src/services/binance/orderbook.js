@@ -7,21 +7,24 @@ import { logger } from '../../config/logger.js';
 import { prisma } from '../../db/prisma.js';
 
 const POLL_INTERVAL = 5000;
-let pollTimer = null;
+let running = false;
 
-export async function pollOrderBooks() {
+async function pollOrderBooks() {
   const pairs = await prisma.tradingPair.findMany({ where: { isActive: true } });
 
   for (const pair of pairs) {
     try {
       const book = await getOrderBook(pair.monitorSymbol);
 
+      if (!book.bids?.length || !book.asks?.length) {
+        logger.warn(`Empty order book for ${pair.monitorSymbol}`);
+        continue;
+      }
+
       const midPrice =
         (parseFloat(book.bids[0][0]) + parseFloat(book.asks[0][0])) / 2;
 
       const obd = calculateObd(book.bids, book.asks, midPrice);
-
-      // Heatmap: группируем ордера по ценовым уровням (0.1% шаг, до 5% от mid)
       const heatmap = buildHeatmap(book.bids, book.asks, midPrice);
 
       broadcast({
@@ -36,9 +39,8 @@ export async function pollOrderBooks() {
         timestamp: Date.now(),
       });
 
-      processObdUpdate(pair, obd, midPrice);
+      await processObdUpdate(pair, obd, midPrice);
 
-      // Трекинг результатов сигналов
       trackSignalOutcomes(pair.monitorSymbol, midPrice).catch((err) => {
         logger.error(`Signal tracking failed for ${pair.monitorSymbol}`, { error: err.message });
       });
@@ -50,11 +52,6 @@ export async function pollOrderBooks() {
   }
 }
 
-/**
- * Группирует ордера стакана в ценовые бакеты для heatmap.
- * Шаг = 0.1% от midPrice, диапазон ±5%.
- * Возвращает массив { price, bidVol, askVol, total, intensity }.
- */
 function buildHeatmap(bids, asks, midPrice) {
   const stepPct = 0.1;
   const rangePct = 5;
@@ -68,7 +65,6 @@ function buildHeatmap(bids, asks, midPrice) {
     buckets.push({ price: Math.round(priceLevel * 100) / 100, bidVol: 0, askVol: 0 });
   }
 
-  // Fill bid volumes
   for (const [priceStr, qtyStr] of bids) {
     const price = parseFloat(priceStr);
     const qty = parseFloat(qtyStr);
@@ -79,7 +75,6 @@ function buildHeatmap(bids, asks, midPrice) {
     }
   }
 
-  // Fill ask volumes
   for (const [priceStr, qtyStr] of asks) {
     const price = parseFloat(priceStr);
     const qty = parseFloat(qtyStr);
@@ -90,7 +85,6 @@ function buildHeatmap(bids, asks, midPrice) {
     }
   }
 
-  // Calculate intensity (0-1 normalized)
   const maxVol = Math.max(...buckets.map((b) => b.bidVol + b.askVol), 1);
   return buckets.map((b) => ({
     ...b,
@@ -99,15 +93,20 @@ function buildHeatmap(bids, asks, midPrice) {
   }));
 }
 
+// Sequential polling loop — prevents overlapping invocations
+async function pollLoop() {
+  while (running) {
+    await pollOrderBooks();
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+  }
+}
+
 export function startOrderBookPolling() {
   logger.info('Starting Order Book polling (5s interval)');
-  pollOrderBooks();
-  pollTimer = setInterval(pollOrderBooks, POLL_INTERVAL);
+  running = true;
+  pollLoop();
 }
 
 export function stopOrderBookPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
+  running = false;
 }
