@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Settings {
+  id             Int      @id @default(1)
+  claudePrompt   String   @db.Text
+  binanceApiKey  String   @default("")
+  binanceSecret  String   @default("")
+  telegramToken  String?
+  telegramChatId String?
+  dipThreshold   Float    @default(10)
+  updatedAt      DateTime @updatedAt
+}
+
+model TradingPair {
+  id            Int      @id @default(autoincrement())
+  monitorSymbol String
+  tradeSymbol   String
+  isActive      Boolean  @default(true)
+  timeframe     String   @default("1m")
+  createdAt     DateTime @default(now())
+  signals       Signal[]
+}
+
+model Signal {
+  id             Int         @id @default(autoincrement())
+  pairId         Int
+  pair           TradingPair @relation(fields: [pairId], references: [id])
+  direction      String
+  obd1           Float
+  obd2           Float
+  obd3           Float
+  obd4           Float
+  price          Float
+  claudeAnalysis String      @db.Text
+  suggestedSl    Float?
+  suggestedTp    Float?
+  createdAt      DateTime    @default(now())
+}
+
+model Trade {
+  id             Int       @id @default(autoincrement())
+  symbol         String
+  side           String
+  quantity       Float
+  price          Float
+  stopLoss       Float?
+  takeProfit     Float?
+  binanceOrderId String
+  status         String    @default("OPEN")
+  pnl            Float?
+  createdAt      DateTime  @default(now())
+  closedAt       DateTime?
+}
