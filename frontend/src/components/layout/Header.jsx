@@ -1,4 +1,4 @@
-export default function Header({ balances, connected, viewMode, onViewModeChange }) {
+export default function Header({ balances, connected, viewMode, onViewModeChange, showHeatmap, onToggleHeatmap }) {
   const usdt = balances.find((b) => b.asset === 'USDT');
   const usdc = balances.find((b) => b.asset === 'USDC');
 
@@ -24,23 +24,38 @@ export default function Header({ balances, connected, viewMode, onViewModeChange
         )}
       </div>
 
-      <div className="flex gap-1 bg-dark-700 rounded-lg p-0.5">
+      <div className="flex items-center gap-3">
+        {/* Heatmap toggle */}
         <button
-          onClick={() => onViewModeChange('grid')}
-          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-            viewMode === 'grid' ? 'bg-dark-500 text-white' : 'text-gray-400'
+          onClick={onToggleHeatmap}
+          className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+            showHeatmap
+              ? 'bg-accent-yellow/20 text-accent-yellow border border-accent-yellow/30'
+              : 'bg-dark-700 text-gray-400 hover:text-gray-200'
           }`}
         >
-          2×2
+          Heatmap
         </button>
-        <button
-          onClick={() => onViewModeChange('single')}
-          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-            viewMode === 'single' ? 'bg-dark-500 text-white' : 'text-gray-400'
-          }`}
-        >
-          1×1
-        </button>
+
+        {/* View mode */}
+        <div className="flex gap-1 bg-dark-700 rounded-lg p-0.5">
+          <button
+            onClick={() => onViewModeChange('grid')}
+            className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+              viewMode === 'grid' ? 'bg-dark-500 text-white' : 'text-gray-400'
+            }`}
+          >
+            2x2
+          </button>
+          <button
+            onClick={() => onViewModeChange('single')}
+            className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+              viewMode === 'single' ? 'bg-dark-500 text-white' : 'text-gray-400'
+            }`}
+          >
+            1x1
+          </button>
+        </div>
       </div>
     </div>
   );

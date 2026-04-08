@@ -40,6 +40,7 @@ model Signal {
   pairId         Int
   pair           TradingPair @relation(fields: [pairId], references: [id])
   direction      String
+  confidence     Int?
   obd1           Float
   obd2           Float
   obd3           Float
@@ -48,6 +49,12 @@ model Signal {
   claudeAnalysis String      @db.Text
   suggestedSl    Float?
   suggestedTp    Float?
+  outcome        String?     // WIN | LOSS | BREAKEVEN | PENDING
+  outcomePrice   Float?      // цена при закрытии/срабатывании SL/TP
+  outcomePnl     Float?      // P&L в процентах
+  outcomeAt      DateTime?   // когда сработал SL/TP
+  maxPrice       Float?      // максимальная цена после сигнала
+  minPrice       Float?      // минимальная цена после сигнала
   createdAt      DateTime    @default(now())
 }
 

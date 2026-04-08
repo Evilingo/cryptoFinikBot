@@ -50,6 +50,7 @@ export async function processObdUpdate(pair, obd, midPrice) {
       data: {
         pairId: pair.id,
         direction: analysis.direction,
+        confidence: analysis.confidence || null,
         obd1: obd.obd1,
         obd2: obd.obd2,
         obd3: obd.obd3,

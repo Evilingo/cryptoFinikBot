@@ -17,6 +17,7 @@ import tradeRoutes from './routes/trade.js';
 import settingsRoutes from './routes/settings.js';
 import balanceRoutes from './routes/balance.js';
 import klinesRoutes from './routes/klines.js';
+import statsRoutes from './routes/stats.js';
 
 validateEnv();
 
@@ -34,6 +35,7 @@ app.use('/api/trade', tradeRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/balance', balanceRoutes);
 app.use('/api/klines', klinesRoutes);
+app.use('/api/stats', statsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

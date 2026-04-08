@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Signals from './pages/Signals';
 import Settings from './pages/Settings';
+import Stats from './pages/Stats';
 import Sidebar from './components/layout/Sidebar';
 
 function ProtectedRoute({ children }) {
@@ -45,6 +46,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Layout><Signals /></Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/stats"
+          element={
+            <ProtectedRoute>
+              <Layout><Stats /></Layout>
             </ProtectedRoute>
           }
         />

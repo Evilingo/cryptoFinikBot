@@ -8,13 +8,15 @@ import IndicatorPanel from '../components/charts/IndicatorPanel';
 import TradePanel from '../components/trading/TradePanel';
 import OpenPositions from '../components/trading/OpenPositions';
 import SignalModal from '../components/signals/SignalModal';
+import OrderBookHeatmap from '../components/charts/OrderBookHeatmap';
 
 export default function Dashboard() {
   const [pairs, setPairs] = useState([]);
   const [selectedPair, setSelectedPair] = useState(null);
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'single'
+  const [showHeatmap, setShowHeatmap] = useState(false);
   const [balances, setBalances] = useState([]);
-  const obdRef = useRef({}); // symbol -> { obd1..4, midPrice }
+  const obdRef = useRef({}); // symbol -> { obd1..4, midPrice, heatmap }
   const [obdData, setObdData] = useState({});
   const klinesRef = useRef({}); // symbol -> latest kline
   const [activeSignal, setActiveSignal] = useState(null);
@@ -34,7 +36,8 @@ export default function Dashboard() {
       obdRef.current[msg.symbol] = {
         obd1: msg.obd1, obd2: msg.obd2,
         obd3: msg.obd3, obd4: msg.obd4,
-        midPrice: msg.midPrice, timestamp: msg.timestamp,
+        midPrice: msg.midPrice, heatmap: msg.heatmap,
+        timestamp: msg.timestamp,
       };
       setObdData({ ...obdRef.current });
     }
@@ -63,6 +66,8 @@ export default function Dashboard() {
         connected={connected}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+        showHeatmap={showHeatmap}
+        onToggleHeatmap={() => setShowHeatmap((v) => !v)}
       />
 
       <div className="flex gap-4 flex-1 min-h-0">
@@ -103,10 +108,17 @@ export default function Dashboard() {
                   </span>
                 </div>
                 <div className="flex-1 min-h-[200px]">
-                  <PairChart
-                    symbol={pair.monitorSymbol}
-                    klineRef={klinesRef}
-                  />
+                  {showHeatmap ? (
+                    <OrderBookHeatmap
+                      heatmap={obdData[pair.monitorSymbol]?.heatmap}
+                      midPrice={obdData[pair.monitorSymbol]?.midPrice || 0}
+                    />
+                  ) : (
+                    <PairChart
+                      symbol={pair.monitorSymbol}
+                      klineRef={klinesRef}
+                    />
+                  )}
                 </div>
                 <IndicatorPanel obd={obdData[pair.monitorSymbol]} />
               </div>
