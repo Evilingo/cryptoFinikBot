@@ -27,7 +27,7 @@ export default function Dashboard() {
     api.get('/pairs').then(({ data }) => {
       setPairs(data);
       if (data.length > 0) setSelectedPair(data[0]);
-    });
+    }).catch(() => {});
     api.get('/balance').then(({ data }) => setBalances(data)).catch(() => {});
   }, []);
 

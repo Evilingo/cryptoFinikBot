@@ -45,15 +45,16 @@ export default function PairChart({ symbol, klineRef }) {
     chartRef.current = chart;
     seriesRef.current = series;
 
-    // Load historical candles
-    api.get(`/klines?symbol=${symbol}&interval=1m&limit=200`)
-      .then(({ data }) => {
+    // Load historical candles directly from Binance (public API, no auth)
+    fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=200`)
+      .then((res) => res.json())
+      .then((data) => {
         const candles = data.map((k) => ({
-          time: Math.floor(k.t / 1000),
-          open: k.o,
-          high: k.h,
-          low: k.l,
-          close: k.c,
+          time: Math.floor(k[0] / 1000),
+          open: parseFloat(k[1]),
+          high: parseFloat(k[2]),
+          low: parseFloat(k[3]),
+          close: parseFloat(k[4]),
         }));
         series.setData(candles);
         chart.timeScale().fitContent();

@@ -113,9 +113,9 @@ server.listen(env.port, async () => {
     logger.error('Seed failed', { error: err.message });
   }
 
-  // Start Binance services
-  startOrderBookPolling();
-  startBinanceWs();
+  // Binance services — disabled until foreign IP/proxy is configured
+  // startOrderBookPolling();
+  // startBinanceWs();
 });
 
 // Graceful shutdown

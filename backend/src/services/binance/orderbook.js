@@ -6,8 +6,10 @@ import { broadcast } from '../../ws/hub.js';
 import { logger } from '../../config/logger.js';
 import { prisma } from '../../db/prisma.js';
 
-const POLL_INTERVAL = 5000;
+const BASE_POLL_INTERVAL = 5000;
 let running = false;
+let currentInterval = BASE_POLL_INTERVAL;
+let consecutiveErrors = 0;
 
 async function pollOrderBooks() {
   const pairs = await prisma.tradingPair.findMany({ where: { isActive: true } });
@@ -44,10 +46,21 @@ async function pollOrderBooks() {
       trackSignalOutcomes(pair.monitorSymbol, midPrice).catch((err) => {
         logger.error(`Signal tracking failed for ${pair.monitorSymbol}`, { error: err.message });
       });
+      consecutiveErrors = 0;
+      currentInterval = BASE_POLL_INTERVAL;
     } catch (err) {
+      consecutiveErrors++;
       logger.error(`Order book poll failed for ${pair.monitorSymbol}`, {
         error: err.message,
+        consecutiveErrors,
       });
+
+      // Backoff on 418 (Binance IP ban) or too many consecutive errors
+      if (err.message?.includes('418') || consecutiveErrors > 10) {
+        currentInterval = Math.min(BASE_POLL_INTERVAL * Math.pow(2, Math.min(consecutiveErrors, 8)), 300_000);
+        logger.warn(`Binance rate limited, backing off to ${currentInterval / 1000}s`);
+        break; // Skip remaining pairs this cycle
+      }
     }
   }
 }
@@ -97,7 +110,7 @@ function buildHeatmap(bids, asks, midPrice) {
 async function pollLoop() {
   while (running) {
     await pollOrderBooks();
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+    await new Promise((r) => setTimeout(r, currentInterval));
   }
 }
 

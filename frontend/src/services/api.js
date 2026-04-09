@@ -27,10 +27,16 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
+
+    // Don't intercept refresh requests themselves or auth routes
+    const isAuthRoute = original.url?.includes('/auth/');
+    if (isAuthRoute) {
+      return Promise.reject(error);
+    }
+
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
 
-      // Prevent concurrent refresh attempts
       if (!refreshPromise) {
         refreshPromise = axios
           .post('/api/auth/refresh', null, { withCredentials: true })
@@ -40,7 +46,6 @@ api.interceptors.response.use(
           })
           .catch(() => {
             accessToken = null;
-            window.location.href = '/login';
             return null;
           })
           .finally(() => {
@@ -53,7 +58,6 @@ api.interceptors.response.use(
         original.headers.Authorization = `Bearer ${newToken}`;
         return api(original);
       }
-      return Promise.reject(error);
     }
     return Promise.reject(error);
   },
