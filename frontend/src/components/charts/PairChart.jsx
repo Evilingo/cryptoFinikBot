@@ -46,7 +46,7 @@ export default function PairChart({ symbol, klineRef }) {
     seriesRef.current = series;
 
     // Load historical candles directly from Binance (public API, no auth)
-    fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=200`)
+    fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=1m&limit=200`)
       .then((res) => res.json())
       .then((data) => {
         const candles = data.map((k) => ({

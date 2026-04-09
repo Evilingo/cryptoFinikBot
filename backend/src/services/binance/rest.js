@@ -3,7 +3,10 @@ import { prisma } from '../../db/prisma.js';
 import { decrypt } from '../../config/crypto.js';
 import { logger } from '../../config/logger.js';
 
-const BASE_URL = 'https://api.binance.com';
+// data-api.binance.vision — публичный API без геоблокировки (для market data)
+// api.binance.com — для приватных запросов (торговля) — нужен иностранный IP
+const DATA_URL = 'https://data-api.binance.vision';
+const TRADE_URL = 'https://api.binance.com';
 
 async function getKeys() {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
@@ -28,7 +31,7 @@ async function privateRequest(method, path, params = {}) {
   params.recvWindow = '5000';
 
   const query = sign(params, secret);
-  const url = `${BASE_URL}${path}?${query}`;
+  const url = `${TRADE_URL}${path}?${query}`;
 
   const res = await fetch(url, {
     method,
@@ -56,15 +59,15 @@ export async function getAccountBalance() {
   return data.balances.filter((b) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0);
 }
 
-export async function getOrderBook(symbol, limit = 5000) {
-  const url = `${BASE_URL}/api/v3/depth?symbol=${symbol}&limit=${limit}`;
+export async function getOrderBook(symbol, limit = 1000) {
+  const url = `${DATA_URL}/api/v3/depth?symbol=${symbol}&limit=${limit}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Binance depth error: ${res.status}`);
   return res.json();
 }
 
 export async function getKlines(symbol, interval = '1m', limit = 100) {
-  const url = `${BASE_URL}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const url = `${DATA_URL}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Binance klines error: ${res.status}`);
   const data = await res.json();
@@ -80,7 +83,7 @@ const symbolInfoCache = new Map();
 async function getSymbolInfo(symbol) {
   if (symbolInfoCache.has(symbol)) return symbolInfoCache.get(symbol);
 
-  const url = `${BASE_URL}/api/v3/exchangeInfo?symbol=${symbol}`;
+  const url = `${DATA_URL}/api/v3/exchangeInfo?symbol=${symbol}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`exchangeInfo error: ${res.status}`);
   const data = await res.json();

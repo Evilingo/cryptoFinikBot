@@ -113,9 +113,10 @@ server.listen(env.port, async () => {
     logger.error('Seed failed', { error: err.message });
   }
 
-  // Binance services — disabled until foreign IP/proxy is configured
+  // Binance WS for real-time klines (works from any IP)
+  startBinanceWs();
+  // Order book polling — enable when IP ban lifts (depth API was rate limited)
   // startOrderBookPolling();
-  // startBinanceWs();
 });
 
 // Graceful shutdown
