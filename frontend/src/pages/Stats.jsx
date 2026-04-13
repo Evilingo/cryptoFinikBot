@@ -40,10 +40,10 @@ export default function Stats() {
 
   if (!stats) return <div className="text-gray-500">Loading...</div>;
 
-  const maxPnl = Math.max(
-    ...stats.recent.map((r) => Math.abs(r.outcomePnl || 0)),
-    1,
-  );
+  const recent = stats.recent || [];
+  const maxPnl = recent.length > 0
+    ? Math.max(...recent.map((r) => Math.abs(r.outcomePnl || 0)), 1)
+    : 1;
 
   return (
     <div className="max-w-5xl">
@@ -95,7 +95,7 @@ export default function Stats() {
 
             {/* Win/loss streak visualization */}
             <div className="flex gap-1 mb-4">
-              {stats.recent.map((r) => (
+              {recent.map((r) => (
                 <div
                   key={r.id}
                   className={`flex-1 h-8 rounded-sm ${
@@ -108,7 +108,7 @@ export default function Stats() {
 
             {/* P&L bars */}
             <div className="space-y-1.5">
-              {stats.recent.map((r) => (
+              {recent.map((r) => (
                 <div key={r.id} className="flex items-center gap-3">
                   <span className="w-10 text-xs text-gray-500">{r.pair?.monitorSymbol.replace('USDC', '')}</span>
                   <span className={`w-10 text-xs font-bold ${r.outcome === 'WIN' ? 'text-accent-green' : r.outcome === 'LOSS' ? 'text-accent-red' : 'text-gray-400'}`}>
