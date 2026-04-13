@@ -5,10 +5,13 @@ import { useAlertSound } from '../hooks/useAlertSound';
 import Header from '../components/layout/Header';
 import PairChart from '../components/charts/PairChart';
 import IndicatorPanel from '../components/charts/IndicatorPanel';
+import ObdCharts from '../components/charts/ObdCharts';
 import TradePanel from '../components/trading/TradePanel';
 import OpenPositions from '../components/trading/OpenPositions';
 import SignalModal from '../components/signals/SignalModal';
 import OrderBookHeatmap from '../components/charts/OrderBookHeatmap';
+
+const MAX_OBD_HISTORY = 720; // ~1 hour at 5s interval
 
 export default function Dashboard() {
   const [pairs, setPairs] = useState([]);
@@ -18,6 +21,7 @@ export default function Dashboard() {
   const [balances, setBalances] = useState([]);
   const obdRef = useRef({}); // symbol -> { obd1..4, midPrice, heatmap }
   const [obdData, setObdData] = useState({});
+  const obdHistoryRef = useRef({}); // symbol -> [{obd1..4, timestamp}, ...]
   const klinesRef = useRef({}); // symbol -> latest kline
   const [activeSignal, setActiveSignal] = useState(null);
 
@@ -40,6 +44,18 @@ export default function Dashboard() {
         timestamp: msg.timestamp,
       };
       setObdData({ ...obdRef.current });
+
+      // Append to history buffer for OBD line charts
+      if (!obdHistoryRef.current[msg.symbol]) {
+        obdHistoryRef.current[msg.symbol] = [];
+      }
+      const hist = obdHistoryRef.current[msg.symbol];
+      hist.push({
+        obd1: msg.obd1, obd2: msg.obd2,
+        obd3: msg.obd3, obd4: msg.obd4,
+        timestamp: msg.timestamp,
+      });
+      if (hist.length > MAX_OBD_HISTORY) hist.shift();
     }
     if (msg.type === 'KLINE') {
       klinesRef.current[msg.symbol] = msg.kline;
@@ -48,9 +64,7 @@ export default function Dashboard() {
       setBalances(msg.balances);
     }
     if (msg.type === 'SIGNAL') {
-      // Play alert sound
       playAlert();
-      // Open signal modal with chart + trade form
       setActiveSignal(msg.signal);
     }
   }, [playAlert]);
@@ -73,7 +87,6 @@ export default function Dashboard() {
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Charts Area */}
         <div className="flex-1 min-w-0">
-          {/* Pair tabs (single mode) */}
           {viewMode === 'single' && (
             <div className="flex gap-1 mb-3">
               {pairs.map((p) => (
@@ -107,7 +120,8 @@ export default function Dashboard() {
                       : '—'}
                   </span>
                 </div>
-                <div className="flex-1 min-h-[200px]">
+                {/* Main chart area — 60% height */}
+                <div className="flex-[3] min-h-[120px]">
                   {showHeatmap ? (
                     <OrderBookHeatmap
                       heatmap={obdData[pair.monitorSymbol]?.heatmap}
@@ -120,7 +134,13 @@ export default function Dashboard() {
                     />
                   )}
                 </div>
-                <IndicatorPanel obd={obdData[pair.monitorSymbol]} />
+                {/* OBD line charts — 40% height */}
+                <div className="flex-[2] min-h-[80px]">
+                  <ObdCharts
+                    symbol={pair.monitorSymbol}
+                    obdHistoryRef={obdHistoryRef}
+                  />
+                </div>
               </div>
             ))}
           </div>
@@ -138,7 +158,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Signal Modal — opens automatically on signal */}
       {activeSignal && (
         <SignalModal
           signal={activeSignal}
