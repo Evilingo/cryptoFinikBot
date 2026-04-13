@@ -5,6 +5,41 @@ import { logger } from '../../config/logger.js';
 
 const anthropic = new Anthropic({ apiKey: env.anthropicApiKey });
 
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [5000, 10000, 20000];
+
+async function callClaude(systemPrompt, userMessage) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      });
+      return response.content[0].text;
+    } catch (err) {
+      const isRetryable =
+        err.message?.includes('529') ||
+        err.message?.includes('Overloaded') ||
+        err.message?.includes('Connection error') ||
+        err.message?.includes('timeout') ||
+        err.status === 529 ||
+        err.status === 503;
+
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[attempt];
+        logger.warn(`Claude retry ${attempt + 1}/${MAX_RETRIES} in ${delay / 1000}s`, {
+          error: err.message,
+        });
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export async function analyzeSignal(pair, obd, candles, currentPrice) {
   const systemPrompt = await getSystemPrompt();
 
@@ -34,14 +69,7 @@ ${JSON.stringify(candles.slice(-20))}
     price: currentPrice,
   });
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userMessage }],
-  });
-
-  const text = response.content[0].text;
+  const text = await callClaude(systemPrompt, userMessage);
   logger.debug('Claude response', { text });
 
   try {

@@ -8,9 +8,9 @@ import { getKlines } from '../binance/rest.js';
 // In-memory store: symbol -> { current, previous, history[] }
 const obdState = new Map();
 
-// Deduplicate: no signal for same pair within 5 min
+// Deduplicate: no signal for same pair within 15 min
 const lastSignalTime = new Map();
-const SIGNAL_COOLDOWN = 5 * 60 * 1000;
+const SIGNAL_COOLDOWN = 15 * 60 * 1000;
 
 // Cache dipThreshold — refresh every 60s
 let cachedThreshold = 10;
@@ -57,30 +57,80 @@ export async function processObdUpdate(pair, obd, midPrice) {
   lastSignalTime.set(symbol, Date.now());
   logger.info(`Signal detected for ${symbol}: ${signal}`, { obd });
 
+  // Step 1: Save signal immediately (even without Claude)
+  let saved;
   try {
-    const candles = await getKlines(pair.monitorSymbol, pair.timeframe, 20);
-    const analysis = await analyzeSignal(pair, obd, candles, midPrice);
-
-    const saved = await prisma.signal.create({
+    saved = await prisma.signal.create({
       data: {
         pairId: pair.id,
-        direction: analysis.direction || 'WAIT',
-        confidence: analysis.confidence != null ? Math.round(analysis.confidence) : null,
+        direction: signal,
         obd1: obd.obd1,
         obd2: obd.obd2,
         obd3: obd.obd3,
         obd4: obd.obd4,
         price: midPrice,
+        claudeAnalysis: '',
+      },
+      include: { pair: true },
+    });
+    logger.info(`Signal #${saved.id} saved for ${symbol}`, { price: midPrice });
+  } catch (err) {
+    logger.error(`Failed to save signal for ${symbol}`, { error: err.message });
+    return;
+  }
+
+  // Step 2: Send to frontend immediately (without Claude analysis)
+  const signalData = {
+    id: saved.id,
+    pairId: saved.pairId,
+    monitorSymbol: pair.monitorSymbol,
+    tradeSymbol: pair.tradeSymbol,
+    direction: signal,
+    confidence: null,
+    claudeAnalysis: 'Analyzing...',
+    suggestedSl: null,
+    suggestedTp: null,
+    price: midPrice,
+    obd1: obd.obd1,
+    obd2: obd.obd2,
+    obd3: obd.obd3,
+    obd4: obd.obd4,
+    createdAt: saved.createdAt,
+  };
+
+  broadcast({ type: 'SIGNAL', signal: signalData });
+
+  // Step 3: Call Claude in background (with retry), update signal
+  analyzeWithClaude(saved.id, pair, obd, midPrice).catch((err) => {
+    logger.error(`Claude analysis failed for signal #${saved.id}`, { error: err.message });
+  });
+}
+
+async function analyzeWithClaude(signalId, pair, obd, midPrice) {
+  try {
+    const candles = await getKlines(pair.monitorSymbol, pair.timeframe, 20);
+    const analysis = await analyzeSignal(pair, obd, candles, midPrice);
+
+    // Update signal in DB with Claude analysis
+    await prisma.signal.update({
+      where: { id: signalId },
+      data: {
+        direction: analysis.direction || 'WAIT',
+        confidence: analysis.confidence != null ? Math.round(analysis.confidence) : null,
         claudeAnalysis: analysis.analysis || '',
         suggestedSl: analysis.suggestedSl,
         suggestedTp: analysis.suggestedTp,
       },
-      include: { pair: true },
     });
 
-    const signalData = {
-      id: saved.id,
-      pairId: saved.pairId,
+    logger.info(`Signal #${signalId} updated with Claude analysis`, {
+      direction: analysis.direction,
+      confidence: analysis.confidence,
+    });
+
+    // Broadcast updated signal
+    const updated = {
+      id: signalId,
       monitorSymbol: pair.monitorSymbol,
       tradeSymbol: pair.tradeSymbol,
       direction: analysis.direction,
@@ -93,17 +143,23 @@ export async function processObdUpdate(pair, obd, midPrice) {
       obd2: obd.obd2,
       obd3: obd.obd3,
       obd4: obd.obd4,
-      createdAt: saved.createdAt,
     };
 
-    broadcast({ type: 'SIGNAL', signal: signalData });
+    broadcast({ type: 'SIGNAL_UPDATE', signal: updated });
 
-    // Telegram notification
-    sendTelegramNotification(formatSignalMessage(signalData)).catch((err) => {
-      logger.error('Telegram notification failed', { error: err.message });
-    });
+    // Telegram notification (only after Claude confirms)
+    if (analysis.direction !== 'WAIT') {
+      sendTelegramNotification(formatSignalMessage(updated)).catch((err) => {
+        logger.error('Telegram notification failed', { error: err.message });
+      });
+    }
   } catch (err) {
-    logger.error(`Signal processing failed for ${symbol}`, { error: err.message });
+    // Save error to DB so we know Claude failed
+    await prisma.signal.update({
+      where: { id: signalId },
+      data: { claudeAnalysis: `Claude error: ${err.message}` },
+    }).catch(() => {});
+    throw err;
   }
 }
 
