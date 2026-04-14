@@ -46,7 +46,7 @@ app.use('/api/klines', klinesRoutes);
 app.use('/api/stats', statsRoutes);
 
 // SPA fallback — all non-API routes serve index.html
-app.get('*', (req, res, next) => {
+app.use((req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
   res.sendFile(join(frontendDist, 'index.html'));
 });
