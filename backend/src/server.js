@@ -32,7 +32,7 @@ app.use(cookieParser());
 
 // Serve frontend static files
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const frontendDist = join(__dirname, '../../../frontend/dist');
+const frontendDist = join(__dirname, '../../frontend/dist');
 app.use(express.static(frontendDist));
 
 // Routes
