@@ -1,3 +1,15 @@
+function ConfidenceBadge({ value }) {
+  if (value == null) return <span className="text-gray-600 font-mono text-xs">—</span>;
+  const color = value >= 70 ? 'text-accent-green bg-green-500/10'
+    : value >= 50 ? 'text-yellow-400 bg-yellow-500/10'
+    : 'text-accent-red bg-red-500/10';
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-bold font-mono ${color}`}>
+      {value}%
+    </span>
+  );
+}
+
 export default function SignalHistory({ signals }) {
   if (!signals.length) {
     return <div className="text-gray-500 text-sm">No signals yet</div>;
@@ -12,6 +24,7 @@ export default function SignalHistory({ signals }) {
             <th className="text-left px-4 py-3 font-medium">Pair</th>
             <th className="text-left px-4 py-3 font-medium">Direction</th>
             <th className="text-right px-4 py-3 font-medium">Price</th>
+            <th className="text-right px-4 py-3 font-medium">Confidence</th>
             <th className="text-right px-4 py-3 font-medium">OBD-1</th>
             <th className="text-right px-4 py-3 font-medium">OBD-2</th>
             <th className="text-right px-4 py-3 font-medium">OBD-3</th>
@@ -38,6 +51,9 @@ export default function SignalHistory({ signals }) {
                 </span>
               </td>
               <td className="px-4 py-3 text-right font-mono">${s.price?.toLocaleString()}</td>
+              <td className="px-4 py-3 text-right">
+                <ConfidenceBadge value={s.confidence} />
+              </td>
               <td className="px-4 py-3 text-right font-mono">{s.obd1?.toFixed(1)}</td>
               <td className="px-4 py-3 text-right font-mono">{s.obd2?.toFixed(1)}</td>
               <td className="px-4 py-3 text-right font-mono">{s.obd3?.toFixed(1)}</td>

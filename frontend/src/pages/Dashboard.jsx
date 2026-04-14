@@ -60,9 +60,6 @@ export default function Dashboard() {
     if (msg.type === 'KLINE') {
       klinesRef.current[msg.symbol] = msg.kline;
     }
-    if (msg.type === 'BALANCE') {
-      setBalances(msg.balances);
-    }
     if (msg.type === 'SIGNAL') {
       playAlert();
       setActiveSignal(msg.signal);

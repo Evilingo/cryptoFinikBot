@@ -16,6 +16,7 @@ router.get('/', authMiddleware, async (req, res) => {
     telegramToken: s.telegramToken ? '****' : '',
     telegramChatId: s.telegramChatId || '',
     dipThreshold: s.dipThreshold,
+    minConfidence: s.minConfidence,
   });
 });
 
@@ -52,6 +53,15 @@ router.put('/telegram', authMiddleware, async (req, res) => {
       telegramChatId: chatId || null,
     },
   });
+  res.json({ ok: true });
+});
+
+router.put('/confidence', authMiddleware, async (req, res) => {
+  const { minConfidence } = req.body;
+  if (typeof minConfidence !== 'number' || minConfidence < 0 || minConfidence > 100) {
+    return res.status(400).json({ error: 'minConfidence must be 0-100' });
+  }
+  await prisma.settings.update({ where: { id: 1 }, data: { minConfidence } });
   res.json({ ok: true });
 });
 

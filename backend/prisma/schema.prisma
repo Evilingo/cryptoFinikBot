@@ -22,6 +22,7 @@ model Settings {
   telegramToken  String?
   telegramChatId String?
   dipThreshold   Float    @default(10)
+  minConfidence  Int      @default(65)
   updatedAt      DateTime @updatedAt
 }
 

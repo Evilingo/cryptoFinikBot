@@ -116,35 +116,44 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
   const info = await getSymbolInfo(symbol);
   const qtyStr = formatPrice(quantity, info.qtyPrecision);
 
-  if (stopLoss && takeProfit) {
-    const ocoSide = side === 'BUY' ? 'SELL' : 'BUY';
-    const slippage = side === 'BUY' ? 0.999 : 1.001;
-
-    const data = await privateRequest('POST', '/api/v3/orderList/oco', {
-      symbol,
-      side: ocoSide,
-      quantity: qtyStr,
-      price: formatPrice(takeProfit, info.pricePrecision),
-      stopPrice: formatPrice(stopLoss, info.pricePrecision),
-      stopLimitPrice: formatPrice(stopLoss * slippage, info.pricePrecision),
-      stopLimitTimeInForce: 'GTC',
-    });
-    logger.info('OCO order placed', { symbol, orderId: data.orderListId });
-    return { orderId: String(data.orderListId), price: takeProfit, type: 'OCO' };
-  }
-
-  const data = await privateRequest('POST', '/api/v3/order', {
+  // Always place market entry first
+  const entryData = await privateRequest('POST', '/api/v3/order', {
     symbol,
     side,
     type: 'MARKET',
     quantity: qtyStr,
   });
 
-  const avgPrice = data.fills?.length
-    ? data.fills.reduce((s, f) => s + parseFloat(f.price) * parseFloat(f.qty), 0)
-      / data.fills.reduce((s, f) => s + parseFloat(f.qty), 0)
-    : parseFloat(data.price || 0);
+  const avgPrice = entryData.fills?.length
+    ? entryData.fills.reduce((s, f) => s + parseFloat(f.price) * parseFloat(f.qty), 0)
+      / entryData.fills.reduce((s, f) => s + parseFloat(f.qty), 0)
+    : parseFloat(entryData.price || 0);
 
-  logger.info('Market order placed', { symbol, orderId: data.orderId });
-  return { orderId: String(data.orderId), price: avgPrice, type: 'MARKET' };
+  logger.info('Market order placed', { symbol, side, orderId: entryData.orderId, avgPrice });
+
+  // If SL+TP provided — place OCO exit order after entry is filled
+  if (stopLoss && takeProfit) {
+    const ocoSide = side === 'BUY' ? 'SELL' : 'BUY';
+    const slippage = side === 'BUY' ? 0.999 : 1.001;
+
+    try {
+      const ocoData = await privateRequest('POST', '/api/v3/orderList/oco', {
+        symbol,
+        side: ocoSide,
+        quantity: qtyStr,
+        price: formatPrice(takeProfit, info.pricePrecision),
+        stopPrice: formatPrice(stopLoss, info.pricePrecision),
+        stopLimitPrice: formatPrice(stopLoss * slippage, info.pricePrecision),
+        stopLimitTimeInForce: 'GTC',
+      });
+      logger.info('OCO exit order placed', { symbol, ocoOrderId: ocoData.orderListId });
+      return { orderId: String(entryData.orderId), ocoOrderId: String(ocoData.orderListId), price: avgPrice, type: 'MARKET+OCO' };
+    } catch (ocoErr) {
+      // Entry is already filled — log OCO failure but don't fail the whole call
+      logger.error('OCO exit order failed after entry fill', { symbol, error: ocoErr.message });
+      return { orderId: String(entryData.orderId), price: avgPrice, type: 'MARKET', warning: 'OCO placement failed — manage exit manually' };
+    }
+  }
+
+  return { orderId: String(entryData.orderId), price: avgPrice, type: 'MARKET' };
 }

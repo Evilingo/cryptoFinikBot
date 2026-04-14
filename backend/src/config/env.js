@@ -3,7 +3,6 @@ const required = [
   'JWT_SECRET',
   'JWT_REFRESH_SECRET',
   'ENCRYPTION_KEY',
-  'ANTHROPIC_API_KEY',
   'ADMIN_USERNAME',
   'ADMIN_PASSWORD',
 ];
@@ -28,8 +27,10 @@ export const env = {
   get jwtRefreshSecret() { return process.env.JWT_REFRESH_SECRET; },
   get encryptionKey() { return process.env.ENCRYPTION_KEY; },
   get databaseUrl() { return process.env.DATABASE_URL; },
-  get redisUrl() { return process.env.REDIS_URL || ''; },
   get anthropicApiKey() { return process.env.ANTHROPIC_API_KEY; },
   get adminUsername() { return process.env.ADMIN_USERNAME; },
   get adminPassword() { return process.env.ADMIN_PASSWORD; },
+  get devSkipAuth() { return process.env.DEV_SKIP_AUTH === 'true'; },
+  get telegramToken() { return process.env.TELEGRAM_TOKEN || ''; },
+  get telegramChatId() { return process.env.TELEGRAM_CHAT_ID || ''; },
 };

@@ -7,6 +7,7 @@ const router = Router();
 
 router.get('/', authMiddleware, async (req, res) => {
   const pairs = await prisma.tradingPair.findMany({
+    where: { isActive: true },
     orderBy: { id: 'asc' },
   });
 

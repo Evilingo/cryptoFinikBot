@@ -1,20 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { DEFAULT_PROMPT } from '../src/services/claude/prompts.js';
 
 const prisma = new PrismaClient();
-
-const DEFAULT_PROMPT = `Ты торговый аналитик для Binance Spot.
-Анализируй данные Order Book Depth (OBD) индикаторов и свечи.
-OBD индикатор: значение 0-100, где >50 означает преобладание покупателей в стакане.
-Сигнал появляется когда все 4 OBD индикатора синхронно просели и начали отскок.
-
-Твоя задача:
-1. Подтвердить или опровергнуть сигнал на основе контекста свечей
-2. Оценить силу сигнала (confidence 0-100)
-3. Предложить уровни Stop Loss и Take Profit
-4. Дать краткое объяснение (2-3 предложения)
-
-Отвечай ТОЛЬКО валидным JSON без дополнительного текста.`;
 
 const pairs = [
   { monitorSymbol: 'BTCUSDC', tradeSymbol: 'BTCUSDT' },
@@ -37,7 +25,12 @@ async function main() {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
   if (!settings) {
     await prisma.settings.create({
-      data: { id: 1, claudePrompt: DEFAULT_PROMPT },
+      data: {
+        id: 1,
+        claudePrompt: DEFAULT_PROMPT,
+        telegramToken: process.env.TELEGRAM_TOKEN || '',
+        telegramChatId: process.env.TELEGRAM_CHAT_ID || '',
+      },
     });
     console.log('Default settings created');
   }

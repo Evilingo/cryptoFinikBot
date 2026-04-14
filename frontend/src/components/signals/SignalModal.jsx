@@ -5,7 +5,7 @@ import api from '../../services/api';
 import toast from 'react-hot-toast';
 
 export default function SignalModal({ signal, pairs, obdData, klinesRef, onClose }) {
-  const [side, setSide] = useState(signal.direction === 'LONG' ? 'BUY' : 'SELL');
+  const [side, setSide] = useState(signal.direction === 'SHORT' ? 'SELL' : 'BUY');
   const [quantity, setQuantity] = useState('');
   const [slPercent, setSlPercent] = useState('');
   const [tpPercent, setTpPercent] = useState('');

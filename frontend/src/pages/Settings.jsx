@@ -10,12 +10,14 @@ export default function Settings() {
   const [tgToken, setTgToken] = useState('');
   const [tgChatId, setTgChatId] = useState('');
   const [threshold, setThreshold] = useState(10);
+  const [minConfidence, setMinConfidence] = useState(65);
 
   useEffect(() => {
     api.get('/settings').then(({ data }) => {
       setSettings(data);
       setPrompt(data.claudePrompt || '');
       setThreshold(data.dipThreshold ?? 10);
+      setMinConfidence(data.minConfidence ?? 65);
       setTgChatId(data.telegramChatId || '');
     }).catch(() => toast.error('Failed to load settings'));
   }, []);
@@ -54,6 +56,15 @@ export default function Settings() {
     try {
       await api.put('/settings/threshold', { dipThreshold: Number(threshold) });
       toast.success('Threshold saved');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    }
+  };
+
+  const saveConfidence = async () => {
+    try {
+      await api.put('/settings/confidence', { minConfidence: Number(minConfidence) });
+      toast.success('Min confidence saved');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Save failed');
     }
@@ -103,8 +114,8 @@ export default function Settings() {
       {/* Signal Threshold */}
       <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
         <h2 className="text-lg font-semibold mb-3">Signal Detection</h2>
-        <div className="flex items-center gap-3">
-          <label className="text-sm text-gray-400">Dip Threshold (1–50):</label>
+        <div className="flex items-center gap-3 mb-4">
+          <label className="text-sm text-gray-400 w-52">Dip Threshold (1–50):</label>
           <input
             type="number"
             min={1}
@@ -116,6 +127,25 @@ export default function Settings() {
           <button onClick={saveThreshold} className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
             Save
           </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <label className="text-sm text-gray-400 w-52">
+            Min Confidence for Telegram (0–100):
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={minConfidence}
+            onChange={(e) => setMinConfidence(e.target.value)}
+            className="w-24"
+          />
+          <button onClick={saveConfidence} className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
+            Save
+          </button>
+          <span className="text-xs text-gray-500">
+            {minConfidence >= 70 ? '🟢 строгий фильтр' : minConfidence >= 50 ? '🟡 умеренный' : '🔴 всё пропускать'}
+          </span>
         </div>
       </section>
 

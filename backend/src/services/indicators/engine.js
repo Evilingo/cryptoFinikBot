@@ -147,9 +147,9 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice) {
 
     broadcast({ type: 'SIGNAL_UPDATE', signal: updated });
 
-    // Telegram notification (only after Claude confirms)
+    // Telegram notification (only after Claude confirms, respects minConfidence)
     if (analysis.direction !== 'WAIT') {
-      sendTelegramNotification(formatSignalMessage(updated)).catch((err) => {
+      sendTelegramNotification(formatSignalMessage(updated), analysis.confidence).catch((err) => {
         logger.error('Telegram notification failed', { error: err.message });
       });
     }
@@ -170,31 +170,28 @@ async function detectSignal(state) {
   if (history.length < 3) return null;
 
   const recent = history.slice(-12);
-  const mins = {
-    obd1: Math.min(...recent.map((h) => h.obd1)),
-    obd2: Math.min(...recent.map((h) => h.obd2)),
-    obd3: Math.min(...recent.map((h) => h.obd3)),
-    obd4: Math.min(...recent.map((h) => h.obd4)),
-  };
+  const beforeWindow = history.slice(-24, -12);
+  if (beforeWindow.length < 3) return null;
 
-  const beforeDip = history.slice(-24, -12);
-  if (beforeDip.length < 3) return null;
+  const OBD_KEYS = ['obd1', 'obd2', 'obd3', 'obd4'];
 
-  const maxes = {
-    obd1: Math.max(...beforeDip.map((h) => h.obd1)),
-    obd2: Math.max(...beforeDip.map((h) => h.obd2)),
-    obd3: Math.max(...beforeDip.map((h) => h.obd3)),
-    obd4: Math.max(...beforeDip.map((h) => h.obd4)),
-  };
+  // --- LONG: все OBD просели и начали отскок ---
+  const recentMins = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
+  const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
 
-  const allDipped = ['obd1', 'obd2', 'obd3', 'obd4'].every(
-    (k) => maxes[k] - mins[k] > threshold,
-  );
-
-  const allRecovering = ['obd1', 'obd2', 'obd3', 'obd4'].every(
-    (k) => current[k] > mins[k] + 2,
-  );
+  const allDipped = OBD_KEYS.every((k) => beforeMaxes[k] - recentMins[k] > threshold);
+  const allRecovering = OBD_KEYS.every((k) => current[k] > recentMins[k] + 2);
 
   if (allDipped && allRecovering) return 'LONG';
+
+  // --- SHORT: все OBD выросли и начали откат ---
+  const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
+  const beforeMins = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
+
+  const allSpiked = OBD_KEYS.every((k) => recentMaxes[k] - beforeMins[k] > threshold);
+  const allFalling = OBD_KEYS.every((k) => current[k] < recentMaxes[k] - 2);
+
+  if (allSpiked && allFalling) return 'SHORT';
+
   return null;
 }

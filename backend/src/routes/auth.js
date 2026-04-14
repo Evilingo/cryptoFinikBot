@@ -50,6 +50,11 @@ router.post('/logout', (req, res) => {
 });
 
 router.post('/refresh', async (req, res) => {
+  if (env.devSkipAuth) {
+    const { accessToken } = generateTokens(1);
+    return res.json({ accessToken });
+  }
+
   const token = req.cookies?.refreshToken;
   if (!token) {
     return res.status(401).json({ error: 'No refresh token' });
