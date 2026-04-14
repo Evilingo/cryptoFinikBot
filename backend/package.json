@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/server.js",
+    "build": "npm --prefix ../frontend install && npm --prefix ../frontend run build",
     "start": "npx prisma db push && node src/server.js",
     "db:generate": "npx prisma generate",
     "db:migrate": "npx prisma migrate dev",
