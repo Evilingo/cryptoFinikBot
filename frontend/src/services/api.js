@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: `${import.meta.env.VITE_API_URL || ''}/api`,
   withCredentials: true,
 });
 
@@ -39,7 +39,7 @@ api.interceptors.response.use(
 
       if (!refreshPromise) {
         refreshPromise = axios
-          .post('/api/auth/refresh', null, { withCredentials: true })
+          .post(`${import.meta.env.VITE_API_URL || ''}/api/auth/refresh`, null, { withCredentials: true })
           .then(({ data }) => {
             accessToken = data.accessToken;
             return accessToken;
