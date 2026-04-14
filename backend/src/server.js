@@ -56,7 +56,7 @@ initWebSocketHub(server);
 
 // Seed admin user on first start
 async function seedAdmin() {
-  const { default: bcrypt } = await import('bcrypt');
+  const { default: bcrypt } = await import('bcryptjs');
   const existing = await prisma.user.findUnique({
     where: { username: env.adminUsername },
   });
