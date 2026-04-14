@@ -1,5 +1,6 @@
 [build]
 builder = "nixpacks"
+buildCommand = "npm --prefix ../frontend install && npm --prefix ../frontend run build"
 
 [deploy]
 startCommand = "npx prisma db push && node src/server.js"

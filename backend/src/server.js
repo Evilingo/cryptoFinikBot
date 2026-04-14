@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import http from 'node:http';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { validateEnv, env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { prisma } from './db/prisma.js';
@@ -28,6 +30,11 @@ app.use(cors({ origin: env.allowedOrigin, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
+// Serve frontend static files
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const frontendDist = join(__dirname, '../../../frontend/dist');
+app.use(express.static(frontendDist));
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/pairs', pairsRoutes);
@@ -37,6 +44,12 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/balance', balanceRoutes);
 app.use('/api/klines', klinesRoutes);
 app.use('/api/stats', statsRoutes);
+
+// SPA fallback — all non-API routes serve index.html
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
+  res.sendFile(join(frontendDist, 'index.html'));
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
