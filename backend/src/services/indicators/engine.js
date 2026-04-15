@@ -3,7 +3,7 @@ import { logger } from '../../config/logger.js';
 import { analyzeSignal } from '../claude/orchestrator.js';
 import { sendTelegramNotification, formatSignalMessage } from '../notifications/notifier.js';
 import { broadcast } from '../../ws/hub.js';
-import { getKlines } from '../binance/rest.js';
+import { getKlines, getMidPrice } from '../binance/rest.js';
 
 // In-memory store: symbol -> { current, previous, history[] }
 const obdState = new Map();
@@ -111,7 +111,23 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice) {
     const candles = await getKlines(pair.monitorSymbol, pair.timeframe, 20);
     const analysis = await analyzeSignal(pair, obd, candles, midPrice);
 
-    // Update signal in DB with Claude analysis
+    // Fetch actual entry price after Claude response (price may have moved)
+    let entryPrice = midPrice;
+    if (analysis.direction !== 'WAIT') {
+      try {
+        entryPrice = await getMidPrice(pair.monitorSymbol);
+        logger.info(`Entry price updated after Claude`, {
+          symbol: pair.monitorSymbol,
+          signalPrice: midPrice,
+          entryPrice,
+          drift: ((entryPrice - midPrice) / midPrice * 100).toFixed(3) + '%',
+        });
+      } catch (err) {
+        logger.warn(`Failed to fetch entry price, using signal price`, { error: err.message });
+      }
+    }
+
+    // Update signal in DB with Claude analysis and actual entry price
     await prisma.signal.update({
       where: { id: signalId },
       data: {
@@ -120,12 +136,14 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice) {
         claudeAnalysis: analysis.analysis || '',
         suggestedSl: analysis.suggestedSl,
         suggestedTp: analysis.suggestedTp,
+        price: entryPrice,
       },
     });
 
     logger.info(`Signal #${signalId} updated with Claude analysis`, {
       direction: analysis.direction,
       confidence: analysis.confidence,
+      entryPrice,
     });
 
     // Broadcast updated signal
@@ -138,7 +156,7 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice) {
       claudeAnalysis: analysis.analysis || '',
       suggestedSl: analysis.suggestedSl,
       suggestedTp: analysis.suggestedTp,
-      price: midPrice,
+      price: entryPrice,
       obd1: obd.obd1,
       obd2: obd.obd2,
       obd3: obd.obd3,

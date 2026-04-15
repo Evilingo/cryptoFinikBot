@@ -66,6 +66,14 @@ export async function getOrderBook(symbol, limit = 1000) {
   return res.json();
 }
 
+export async function getMidPrice(symbol) {
+  const url = `${DATA_URL}/api/v3/ticker/bookTicker?symbol=${symbol}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Binance bookTicker error: ${res.status}`);
+  const { bidPrice, askPrice } = await res.json();
+  return (parseFloat(bidPrice) + parseFloat(askPrice)) / 2;
+}
+
 export async function getKlines(symbol, interval = '1m', limit = 100) {
   const url = `${DATA_URL}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
   const res = await fetch(url);
