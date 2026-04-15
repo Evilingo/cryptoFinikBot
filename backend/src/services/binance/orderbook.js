@@ -16,7 +16,7 @@ async function pollOrderBooks() {
 
   for (const pair of pairs) {
     try {
-      const book = await getOrderBook(pair.monitorSymbol, 500);
+      const book = await getOrderBook(pair.monitorSymbol, 5000);
 
       if (!book.bids?.length || !book.asks?.length) {
         logger.warn(`Empty order book for ${pair.monitorSymbol}`);
