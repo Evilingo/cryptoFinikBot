@@ -115,7 +115,7 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice) {
     let entryPrice = midPrice;
     if (analysis.direction !== 'WAIT') {
       try {
-        entryPrice = await getMidPrice(pair.monitorSymbol);
+        entryPrice = await getMidPrice(pair.tradeSymbol);
         logger.info(`Entry price updated after Claude`, {
           symbol: pair.monitorSymbol,
           signalPrice: midPrice,
@@ -226,6 +226,7 @@ async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
 
   await prisma.trade.create({
     data: {
+      signalId,
       symbol: pair.tradeSymbol,
       side,
       quantity,

@@ -64,6 +64,7 @@ model Signal {
 
 model Trade {
   id             Int       @id @default(autoincrement())
+  signalId       Int?
   symbol         String
   side           String
   quantity       Float

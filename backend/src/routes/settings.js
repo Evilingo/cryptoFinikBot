@@ -14,7 +14,7 @@ router.get('/', authMiddleware, async (req, res) => {
     binanceApiKey: s.binanceApiKey ? 'Configured ****' : 'Not set',
     binanceSecret: s.binanceSecret ? 'Configured ****' : 'Not set',
     telegramToken: s.telegramToken ? '****' : '',
-    telegramChatId: s.telegramChatId || '',
+    telegramChatId: s.telegramChatId ? '****' : '',
     dipThreshold: s.dipThreshold,
     minConfidence: s.minConfidence,
     autoTrade: s.autoTrade,
