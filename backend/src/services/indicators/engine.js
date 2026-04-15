@@ -101,15 +101,20 @@ export async function processObdUpdate(pair, obd, midPrice) {
   broadcast({ type: 'SIGNAL', signal: signalData });
 
   // Step 3: Call Claude in background (with retry), update signal
-  analyzeWithClaude(saved.id, pair, obd, midPrice).catch((err) => {
+  analyzeWithClaude(saved.id, pair, obd, midPrice, signal).catch((err) => {
     logger.error(`Claude analysis failed for signal #${saved.id}`, { error: err.message });
   });
 }
 
-async function analyzeWithClaude(signalId, pair, obd, midPrice) {
+async function analyzeWithClaude(signalId, pair, obd, midPrice, signalDirection) {
   try {
     const candles = await getKlines(pair.monitorSymbol, pair.timeframe, 20);
-    const analysis = await analyzeSignal(pair, obd, candles, midPrice);
+
+    // Skip Claude if env var set (test mode)
+    const skipClaude = process.env.SKIP_CLAUDE_ANALYSIS === 'true';
+    const analysis = skipClaude
+      ? { direction: signalDirection, confidence: 80, analysis: 'Claude skipped (test mode)', suggestedSl: null, suggestedTp: null }
+      : await analyzeSignal(pair, obd, candles, midPrice);
 
     // Fetch actual entry price after Claude response (price may have moved)
     let entryPrice = midPrice;
