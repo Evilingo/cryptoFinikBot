@@ -6,7 +6,13 @@ import { logger } from '../../config/logger.js';
 // data-api.binance.vision — публичный API без геоблокировки (для market data)
 // api.binance.com — для приватных запросов (торговля) — нужен иностранный IP
 const DATA_URL = 'https://data-api.binance.vision';
-const TRADE_URL = 'https://api.binance.com';
+const TRADE_URL = process.env.BINANCE_TESTNET === 'true'
+  ? 'https://testnet.binance.vision'
+  : 'https://api.binance.com';
+
+if (process.env.BINANCE_TESTNET === 'true') {
+  console.log('[Binance] TESTNET mode active:', TRADE_URL);
+}
 
 async function getKeys() {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
