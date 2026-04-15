@@ -21,6 +21,8 @@ import settingsRoutes from './routes/settings.js';
 import balanceRoutes from './routes/balance.js';
 import klinesRoutes from './routes/klines.js';
 import statsRoutes from './routes/stats.js';
+import telegramRoutes from './routes/telegram.js';
+import { setupTelegramWebhook } from './services/notifications/telegramBot.js';
 
 validateEnv();
 
@@ -44,6 +46,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/balance', balanceRoutes);
 app.use('/api/klines', klinesRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/telegram', telegramRoutes);
 
 // SPA fallback — all non-API routes serve index.html
 app.use((req, res, next) => {
@@ -127,6 +130,14 @@ server.listen(env.port, async () => {
 
   startOrderBookPolling();
   startBinanceWs();
+
+  // Register Telegram webhook (non-blocking)
+  const publicUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+    : process.env.ALLOWED_ORIGIN;
+  setupTelegramWebhook(publicUrl).catch((err) =>
+    logger.warn('Telegram webhook setup failed', { error: err.message })
+  );
 });
 
 // Graceful shutdown

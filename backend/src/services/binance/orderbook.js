@@ -16,7 +16,7 @@ async function pollOrderBooks() {
 
   for (const pair of pairs) {
     try {
-      const book = await getOrderBook(pair.monitorSymbol);
+      const book = await getOrderBook(pair.monitorSymbol, 500);
 
       if (!book.bids?.length || !book.asks?.length) {
         logger.warn(`Empty order book for ${pair.monitorSymbol}`);
@@ -55,10 +55,10 @@ async function pollOrderBooks() {
         consecutiveErrors,
       });
 
-      // Backoff on 418 (Binance IP ban) or too many consecutive errors
-      if (err.message?.includes('418') || consecutiveErrors > 10) {
+      // Backoff on 418 (IP ban), 429 (rate limit), or too many consecutive errors
+      if (err.message?.includes('418') || err.message?.includes('429') || consecutiveErrors > 10) {
         currentInterval = Math.min(BASE_POLL_INTERVAL * Math.pow(2, Math.min(consecutiveErrors, 8)), 300_000);
-        logger.warn(`Binance rate limited, backing off to ${currentInterval / 1000}s`);
+        logger.warn(`Binance rate limited (${err.message}), backing off to ${currentInterval / 1000}s`);
         break; // Skip remaining pairs this cycle
       }
     }

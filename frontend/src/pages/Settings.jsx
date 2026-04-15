@@ -24,6 +24,7 @@ export default function Settings() {
       setAutoTrade(data.autoTrade ?? false);
       setAutoTradeAmount(data.autoTradeAmount ?? 10);
       setMaxOpenTrades(data.maxOpenTrades ?? 1);
+      setTgToken(data.telegramToken || '');
       setTgChatId(data.telegramChatId || '');
     }).catch(() => toast.error('Failed to load settings'));
   }, []);
@@ -51,7 +52,11 @@ export default function Settings() {
 
   const saveTelegram = async () => {
     try {
-      await api.put('/settings/telegram', { token: tgToken || null, chatId: tgChatId || null });
+      // Send undefined (not null) if field still shows masked placeholder — backend will preserve existing value
+      await api.put('/settings/telegram', {
+        token: tgToken === '****' ? undefined : (tgToken || null),
+        chatId: tgChatId === '****' ? undefined : (tgChatId || null),
+      });
       toast.success('Telegram settings saved');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Save failed');

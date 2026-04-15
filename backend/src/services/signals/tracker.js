@@ -101,9 +101,10 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
 /**
  * Статистика точности сигналов.
  */
-export async function getSignalStats(pairId = null) {
+export async function getSignalStats(pairId = null, since = null) {
   const where = { outcome: { not: null } };
   if (pairId) where.pairId = pairId;
+  if (since) where.createdAt = { gte: since };
 
   const signals = await prisma.signal.findMany({
     where,

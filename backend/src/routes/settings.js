@@ -49,13 +49,12 @@ router.put('/keys', authMiddleware, async (req, res) => {
 
 router.put('/telegram', authMiddleware, async (req, res) => {
   const { token, chatId } = req.body;
-  await prisma.settings.update({
-    where: { id: 1 },
-    data: {
-      telegramToken: token || null,
-      telegramChatId: chatId || null,
-    },
-  });
+  const data = {};
+  if (token !== undefined) data.telegramToken = token || null;
+  if (chatId !== undefined) data.telegramChatId = chatId || null;
+  if (Object.keys(data).length > 0) {
+    await prisma.settings.update({ where: { id: 1 }, data });
+  }
   res.json({ ok: true });
 });
 
