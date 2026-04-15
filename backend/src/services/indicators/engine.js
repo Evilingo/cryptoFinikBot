@@ -3,7 +3,7 @@ import { logger } from '../../config/logger.js';
 import { analyzeSignal } from '../claude/orchestrator.js';
 import { sendTelegramNotification, formatSignalMessage } from '../notifications/notifier.js';
 import { broadcast } from '../../ws/hub.js';
-import { getKlines, getMidPrice } from '../binance/rest.js';
+import { getKlines, getMidPrice, placeOrder } from '../binance/rest.js';
 
 // In-memory store: symbol -> { current, previous, history[] }
 const obdState = new Map();
@@ -170,6 +170,11 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice) {
       sendTelegramNotification(formatSignalMessage(updated), analysis.confidence).catch((err) => {
         logger.error('Telegram notification failed', { error: err.message });
       });
+
+      // Auto-trade if enabled
+      executeAutoTrade(signalId, pair, analysis, entryPrice).catch((err) => {
+        logger.error(`Auto-trade failed for signal #${signalId}`, { error: err.message });
+      });
     }
   } catch (err) {
     // Save error to DB so we know Claude failed
@@ -179,6 +184,71 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice) {
     }).catch(() => {});
     throw err;
   }
+}
+
+async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
+  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+  if (!settings?.autoTrade) return;
+
+  const { direction, confidence, suggestedSl, suggestedTp } = analysis;
+  const minConf = settings.minConfidence ?? 65;
+  if (confidence != null && confidence < minConf) {
+    logger.info('Auto-trade skipped: confidence below threshold', { confidence, minConf });
+    return;
+  }
+
+  // Check open trades limit
+  const openCount = await prisma.trade.count({ where: { status: 'OPEN' } });
+  if (openCount >= settings.maxOpenTrades) {
+    logger.info('Auto-trade skipped: maxOpenTrades limit reached', { openCount, max: settings.maxOpenTrades });
+    return;
+  }
+
+  const side = direction === 'LONG' ? 'BUY' : 'SELL';
+  const quantity = settings.autoTradeAmount / entryPrice;
+
+  logger.info('Executing auto-trade', {
+    symbol: pair.tradeSymbol,
+    side,
+    quantity: quantity.toFixed(6),
+    entryPrice,
+    sl: suggestedSl,
+    tp: suggestedTp,
+  });
+
+  const result = await placeOrder({
+    symbol: pair.tradeSymbol,
+    side,
+    quantity,
+    stopLoss: suggestedSl || undefined,
+    takeProfit: suggestedTp || undefined,
+  });
+
+  await prisma.trade.create({
+    data: {
+      symbol: pair.tradeSymbol,
+      side,
+      quantity,
+      price: result.price || entryPrice,
+      stopLoss: suggestedSl || null,
+      takeProfit: suggestedTp || null,
+      binanceOrderId: result.orderId,
+      status: 'OPEN',
+    },
+  });
+
+  logger.info('Auto-trade executed and saved', {
+    symbol: pair.tradeSymbol,
+    orderId: result.orderId,
+    price: result.price,
+    type: result.type,
+  });
+
+  // Notify about auto-trade
+  sendTelegramNotification(
+    `🤖 Авто-сделка открыта\n${side} ${pair.tradeSymbol}\nЦена: ${result.price}\nSL: ${suggestedSl || 'нет'} | TP: ${suggestedTp || 'нет'}`,
+    null,
+  ).catch(() => {});
 }
 
 async function detectSignal(state) {

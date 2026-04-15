@@ -11,6 +11,9 @@ export default function Settings() {
   const [tgChatId, setTgChatId] = useState('');
   const [threshold, setThreshold] = useState(10);
   const [minConfidence, setMinConfidence] = useState(65);
+  const [autoTrade, setAutoTrade] = useState(false);
+  const [autoTradeAmount, setAutoTradeAmount] = useState(10);
+  const [maxOpenTrades, setMaxOpenTrades] = useState(1);
 
   useEffect(() => {
     api.get('/settings').then(({ data }) => {
@@ -18,6 +21,9 @@ export default function Settings() {
       setPrompt(data.claudePrompt || '');
       setThreshold(data.dipThreshold ?? 10);
       setMinConfidence(data.minConfidence ?? 65);
+      setAutoTrade(data.autoTrade ?? false);
+      setAutoTradeAmount(data.autoTradeAmount ?? 10);
+      setMaxOpenTrades(data.maxOpenTrades ?? 1);
       setTgChatId(data.telegramChatId || '');
     }).catch(() => toast.error('Failed to load settings'));
   }, []);
@@ -56,6 +62,19 @@ export default function Settings() {
     try {
       await api.put('/settings/threshold', { dipThreshold: Number(threshold) });
       toast.success('Threshold saved');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    }
+  };
+
+  const saveAutoTrade = async () => {
+    try {
+      await api.put('/settings/autotrade', {
+        autoTrade,
+        autoTradeAmount: Number(autoTradeAmount),
+        maxOpenTrades: Number(maxOpenTrades),
+      });
+      toast.success('Auto-trade settings saved');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Save failed');
     }
@@ -147,6 +166,52 @@ export default function Settings() {
             {minConfidence >= 70 ? '🟢 строгий фильтр' : minConfidence >= 50 ? '🟡 умеренный' : '🔴 всё пропускать'}
           </span>
         </div>
+      </section>
+
+      {/* Auto-Trade */}
+      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
+        <h2 className="text-lg font-semibold mb-1">Auto-Trade</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Автоматически открывает сделку на Binance после подтверждения Claude. Требует настроенных API ключей.
+        </p>
+        <div className="flex items-center gap-3 mb-4">
+          <label className="text-sm text-gray-400 w-52">Включить авто-торговлю:</label>
+          <button
+            onClick={() => setAutoTrade(!autoTrade)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${autoTrade ? 'bg-green-600 hover:bg-green-700' : 'bg-dark-600 hover:bg-dark-500'}`}
+          >
+            {autoTrade ? 'Включено' : 'Выключено'}
+          </button>
+        </div>
+        <div className="flex items-center gap-3 mb-4">
+          <label className="text-sm text-gray-400 w-52">Сумма на сделку (USDT):</label>
+          <input
+            type="number"
+            min={1}
+            value={autoTradeAmount}
+            onChange={(e) => setAutoTradeAmount(e.target.value)}
+            className="w-28"
+          />
+        </div>
+        <div className="flex items-center gap-3 mb-4">
+          <label className="text-sm text-gray-400 w-52">Макс. открытых сделок:</label>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={maxOpenTrades}
+            onChange={(e) => setMaxOpenTrades(e.target.value)}
+            className="w-28"
+          />
+        </div>
+        {autoTrade && (
+          <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-600/40 rounded-lg text-xs text-yellow-400">
+            Авто-торговля активна. SHORT сигналы продают актив из портфеля (не шорт-позиция). Убедись что Binance API ключи настроены с правами на торговлю.
+          </div>
+        )}
+        <button onClick={saveAutoTrade} className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
+          Save Auto-Trade
+        </button>
       </section>
 
       {/* Telegram */}

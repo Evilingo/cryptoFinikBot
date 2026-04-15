@@ -17,6 +17,9 @@ router.get('/', authMiddleware, async (req, res) => {
     telegramChatId: s.telegramChatId || '',
     dipThreshold: s.dipThreshold,
     minConfidence: s.minConfidence,
+    autoTrade: s.autoTrade,
+    autoTradeAmount: s.autoTradeAmount,
+    maxOpenTrades: s.maxOpenTrades,
   });
 });
 
@@ -62,6 +65,17 @@ router.put('/confidence', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'minConfidence must be 0-100' });
   }
   await prisma.settings.update({ where: { id: 1 }, data: { minConfidence } });
+  res.json({ ok: true });
+});
+
+router.put('/autotrade', authMiddleware, async (req, res) => {
+  const { autoTrade, autoTradeAmount, maxOpenTrades } = req.body;
+  const data = {};
+  if (typeof autoTrade === 'boolean') data.autoTrade = autoTrade;
+  if (typeof autoTradeAmount === 'number' && autoTradeAmount > 0) data.autoTradeAmount = autoTradeAmount;
+  if (typeof maxOpenTrades === 'number' && maxOpenTrades >= 1 && maxOpenTrades <= 10) data.maxOpenTrades = maxOpenTrades;
+  if (Object.keys(data).length === 0) return res.status(400).json({ error: 'No valid fields provided' });
+  await prisma.settings.update({ where: { id: 1 }, data });
   res.json({ ok: true });
 });
 

@@ -23,6 +23,9 @@ model Settings {
   telegramChatId String?
   dipThreshold   Float    @default(10)
   minConfidence  Int      @default(65)
+  autoTrade      Boolean  @default(false)
+  autoTradeAmount Float   @default(10)
+  maxOpenTrades  Int      @default(1)
   updatedAt      DateTime @updatedAt
 }
 
