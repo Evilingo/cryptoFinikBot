@@ -12,6 +12,10 @@ const obdState = new Map();
 const lastSignalTime = new Map();
 const SIGNAL_COOLDOWN = 15 * 60 * 1000;
 
+// OBD snapshot recording: save every 30s per symbol
+const lastSnapshotTime = new Map();
+const SNAPSHOT_INTERVAL = 30_000;
+
 // Cache dipThreshold — refresh every 60s
 let cachedThreshold = 10;
 let thresholdLastFetch = 0;
@@ -41,6 +45,15 @@ export async function processObdUpdate(pair, obd, midPrice) {
   if (state.history.length > 120) state.history.shift();
 
   obdState.set(symbol, state);
+
+  // Save OBD snapshot every 30s for backtesting
+  const now = Date.now();
+  if (now - (lastSnapshotTime.get(symbol) || 0) >= SNAPSHOT_INTERVAL) {
+    lastSnapshotTime.set(symbol, now);
+    prisma.obdSnapshot.create({
+      data: { pairId: pair.id, obd1: obd.obd1, obd2: obd.obd2, obd3: obd.obd3, obd4: obd.obd4, midPrice },
+    }).catch((err) => logger.debug('OBD snapshot save failed', { error: err.message }));
+  }
 
   if (!state.previous) return;
 
@@ -276,6 +289,31 @@ async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     `🤖 Авто-сделка открыта\n${side} ${pair.tradeSymbol}\nЦена: ${result.price}\nSL: ${suggestedSl || 'нет'} | TP: ${suggestedTp || 'нет'}`,
     null,
   ).catch(() => {});
+}
+
+// Pure synchronous version — used by backtester (no DB/async)
+export function detectSignalFromHistory(history, threshold = 10) {
+  if (history.length < 24) return null;
+  const current = history[history.length - 1];
+  const recent = history.slice(-12);
+  const beforeWindow = history.slice(-24, -12);
+  if (beforeWindow.length < 3) return null;
+
+  const OBD_KEYS = ['obd1', 'obd2', 'obd3', 'obd4'];
+
+  const recentMins = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
+  const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
+  const allDipped = OBD_KEYS.every((k) => beforeMaxes[k] - recentMins[k] > threshold);
+  const allRecovering = OBD_KEYS.every((k) => current[k] > recentMins[k] + 2);
+  if (allDipped && allRecovering) return 'LONG';
+
+  const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
+  const beforeMins = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
+  const allSpiked = OBD_KEYS.every((k) => recentMaxes[k] - beforeMins[k] > threshold);
+  const allFalling = OBD_KEYS.every((k) => current[k] < recentMaxes[k] - 2);
+  if (allSpiked && allFalling) return 'SHORT';
+
+  return null;
 }
 
 async function detectSignal(state) {

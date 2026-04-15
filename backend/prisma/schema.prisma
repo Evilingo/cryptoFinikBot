@@ -30,13 +30,28 @@ model Settings {
 }
 
 model TradingPair {
-  id            Int      @id @default(autoincrement())
+  id            Int           @id @default(autoincrement())
   monitorSymbol String
   tradeSymbol   String
-  isActive      Boolean  @default(true)
-  timeframe     String   @default("1m")
-  createdAt     DateTime @default(now())
+  isActive      Boolean       @default(true)
+  timeframe     String        @default("1m")
+  createdAt     DateTime      @default(now())
   signals       Signal[]
+  obdSnapshots  ObdSnapshot[]
+}
+
+model ObdSnapshot {
+  id        Int         @id @default(autoincrement())
+  pairId    Int
+  pair      TradingPair @relation(fields: [pairId], references: [id])
+  obd1      Float
+  obd2      Float
+  obd3      Float
+  obd4      Float
+  midPrice  Float
+  createdAt DateTime    @default(now())
+
+  @@index([pairId, createdAt])
 }
 
 model Signal {

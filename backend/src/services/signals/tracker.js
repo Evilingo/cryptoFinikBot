@@ -101,6 +101,163 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
 /**
  * Статистика точности сигналов.
  */
+export async function getEnhancedStats(pairId = null, since = null) {
+  const where = { outcome: { not: null } };
+  if (pairId) where.pairId = pairId;
+  if (since) where.createdAt = { gte: since };
+
+  const signals = await prisma.signal.findMany({
+    where,
+    select: {
+      outcome: true, outcomePnl: true, direction: true,
+      confidence: true, createdAt: true,
+      pair: { select: { monitorSymbol: true } },
+    },
+  });
+
+  if (signals.length === 0) return { byConfidence: [], byDirection: {}, byHour: [] };
+
+  // By confidence bracket
+  const brackets = [
+    { label: '0–50', min: 0, max: 50 },
+    { label: '50–65', min: 50, max: 65 },
+    { label: '65–80', min: 65, max: 80 },
+    { label: '80–100', min: 80, max: 101 },
+  ];
+  const byConfidence = brackets.map(({ label, min, max }) => {
+    const group = signals.filter((s) => s.confidence != null && s.confidence >= min && s.confidence < max);
+    const wins = group.filter((s) => s.outcome === 'WIN').length;
+    const total = group.length;
+    const totalPnl = group.reduce((sum, s) => sum + (s.outcomePnl || 0), 0);
+    return {
+      label, total, wins,
+      losses: group.filter((s) => s.outcome === 'LOSS').length,
+      winRate: total > 0 ? Math.round((wins / total) * 10000) / 100 : 0,
+      avgPnl: total > 0 ? Math.round((totalPnl / total) * 100) / 100 : 0,
+    };
+  });
+
+  // By direction
+  const byDirection = {};
+  for (const dir of ['LONG', 'SHORT']) {
+    const group = signals.filter((s) => s.direction === dir);
+    const wins = group.filter((s) => s.outcome === 'WIN').length;
+    const total = group.length;
+    const totalPnl = group.reduce((sum, s) => sum + (s.outcomePnl || 0), 0);
+    byDirection[dir] = {
+      total, wins,
+      losses: group.filter((s) => s.outcome === 'LOSS').length,
+      winRate: total > 0 ? Math.round((wins / total) * 10000) / 100 : 0,
+      avgPnl: total > 0 ? Math.round((totalPnl / total) * 100) / 100 : 0,
+    };
+  }
+
+  // By hour of day (UTC)
+  const byHour = Array.from({ length: 24 }, (_, h) => {
+    const group = signals.filter((s) => new Date(s.createdAt).getUTCHours() === h);
+    const wins = group.filter((s) => s.outcome === 'WIN').length;
+    const total = group.length;
+    return {
+      hour: h,
+      total,
+      wins,
+      winRate: total > 0 ? Math.round((wins / total) * 10000) / 100 : null,
+    };
+  });
+
+  return { byConfidence, byDirection, byHour };
+}
+
+export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.5, tpPct = 3.0 }) {
+  const snapshots = await prisma.obdSnapshot.findMany({
+    where: {
+      pairId: Number(pairId),
+      createdAt: { gte: new Date(from), lte: new Date(to) },
+    },
+    orderBy: { createdAt: 'asc' },
+    select: { obd1: true, obd2: true, obd3: true, obd4: true, midPrice: true, createdAt: true },
+  });
+
+  if (snapshots.length < 24) return { signals: [], stats: null, snapshotCount: snapshots.length };
+
+  const { detectSignalFromHistory } = await import('../indicators/engine.js');
+  const COOLDOWN = 15 * 60 * 1000;
+  const TIMEOUT = 60 * 60 * 1000; // 1h
+
+  const signals = [];
+  let lastSignalAt = 0;
+
+  for (let i = 24; i < snapshots.length; i++) {
+    const history = snapshots.slice(Math.max(0, i - 24), i + 1);
+    const direction = detectSignalFromHistory(history, threshold);
+    if (!direction) continue;
+
+    const snap = snapshots[i];
+    const snapTime = new Date(snap.createdAt).getTime();
+    if (snapTime - lastSignalAt < COOLDOWN) continue;
+    lastSignalAt = snapTime;
+
+    // Find outcome in subsequent snapshots
+    const entryPrice = snap.midPrice;
+    const sl = direction === 'LONG' ? entryPrice * (1 - slPct / 100) : entryPrice * (1 + slPct / 100);
+    const tp = direction === 'LONG' ? entryPrice * (1 + tpPct / 100) : entryPrice * (1 - tpPct / 100);
+
+    let outcome = 'TIMEOUT';
+    let exitPrice = entryPrice;
+
+    for (let j = i + 1; j < snapshots.length; j++) {
+      const future = snapshots[j];
+      const futureTime = new Date(future.createdAt).getTime();
+      if (futureTime - snapTime > TIMEOUT) break;
+
+      const p = future.midPrice;
+      if (direction === 'LONG') {
+        if (p >= tp) { outcome = 'WIN'; exitPrice = tp; break; }
+        if (p <= sl) { outcome = 'LOSS'; exitPrice = sl; break; }
+      } else {
+        if (p <= tp) { outcome = 'WIN'; exitPrice = tp; break; }
+        if (p >= sl) { outcome = 'LOSS'; exitPrice = sl; break; }
+      }
+      exitPrice = p;
+    }
+
+    if (outcome === 'TIMEOUT') {
+      const pnlRaw = direction === 'LONG'
+        ? (exitPrice - entryPrice) / entryPrice * 100
+        : (entryPrice - exitPrice) / entryPrice * 100;
+      outcome = pnlRaw > 0.1 ? 'WIN' : pnlRaw < -0.1 ? 'LOSS' : 'BREAKEVEN';
+    }
+
+    const pnl = direction === 'LONG'
+      ? Math.round((exitPrice - entryPrice) / entryPrice * 10000) / 100
+      : Math.round((entryPrice - exitPrice) / entryPrice * 10000) / 100;
+
+    signals.push({ direction, entryPrice, exitPrice, sl, tp, outcome, pnl, createdAt: snap.createdAt });
+  }
+
+  const total = signals.length;
+  const wins = signals.filter((s) => s.outcome === 'WIN').length;
+  const losses = signals.filter((s) => s.outcome === 'LOSS').length;
+  const totalPnl = signals.reduce((sum, s) => sum + s.pnl, 0);
+
+  // Cumulative equity curve
+  let equity = 0;
+  const equityCurve = signals.map((s) => { equity += s.pnl; return Math.round(equity * 100) / 100; });
+
+  return {
+    snapshotCount: snapshots.length,
+    signals,
+    equityCurve,
+    stats: {
+      total, wins, losses,
+      breakeven: total - wins - losses,
+      winRate: total > 0 ? Math.round((wins / total) * 10000) / 100 : 0,
+      totalPnl: Math.round(totalPnl * 100) / 100,
+      avgPnl: total > 0 ? Math.round((totalPnl / total) * 100) / 100 : 0,
+    },
+  };
+}
+
 export async function getSignalStats(pairId = null, since = null) {
   const where = { outcome: { not: null } };
   if (pairId) where.pairId = pairId;
