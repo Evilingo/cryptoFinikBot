@@ -8,22 +8,24 @@ BestTrader is a Binance Spot trading signal platform. It monitors order book dep
 
 ## Commands
 
-### Infrastructure (run first)
+### Infrastructure
 ```bash
-cd /path/to/besttrader
-docker compose up -d        # PostgreSQL + Redis
+docker compose up -d        # PostgreSQL + Redis (local dev)
+# OR via Homebrew (macOS):
+brew services start postgresql@16
+brew services start redis
+createdb trading_db
 ```
 
 ### Backend
 ```bash
 cd backend
-cp .env.example .env        # fill required vars (see Environment Variables)
+cp .env.example .env        # fill required vars
 npm install
 npm run db:generate         # generate Prisma client
-npm run db:push             # push schema to DB (dev, no migration files)
-npm run db:migrate          # create migration files (prod)
+npm run db:push             # push schema to DB
 npm run dev                 # start with --watch (hot reload)
-npm start                   # production
+npm start                   # production (also runs prisma db push)
 ```
 
 ### Frontend
@@ -33,6 +35,14 @@ npm install
 npm run dev                 # Vite dev server on :5173
 npm run build
 ```
+
+### Deployment (Railway)
+- Root directory: repo root (empty, not `backend/`)
+- Build: `npm run build` (root package.json installs backend+frontend deps, builds frontend)
+- Start: `npm start` (delegates to `npm --prefix backend start`)
+- Backend serves frontend static files from `frontend/dist/`
+- PostgreSQL: Railway plugin, `DATABASE_URL` must be set in backend service Variables
+- Start command set in Railway UI: `npx prisma db push && node src/server.js`
 
 ## Environment Variables (backend/.env)
 
@@ -44,13 +54,27 @@ npm run build
 | `ENCRYPTION_KEY` | ✓ | 64 hex chars (AES-256 for Binance keys) |
 | `ADMIN_USERNAME` | ✓ | Auto-created on first start |
 | `ADMIN_PASSWORD` | ✓ | Auto-created on first start |
+| `ALLOWED_ORIGIN` | ✓ | Frontend URL for CORS (same domain in prod — set to backend URL) |
 | `ANTHROPIC_API_KEY` | optional | If absent — Claude analysis is skipped, signals still saved |
 | `TELEGRAM_TOKEN` | optional | Synced to DB Settings on startup |
 | `TELEGRAM_CHAT_ID` | optional | Synced to DB Settings on startup |
-| `REDIS_URL` | optional | Not currently used (bullmq removed) |
+| `REDIS_URL` | optional | Not currently used |
 | `DEV_SKIP_AUTH` | dev only | `true` → /auth/refresh returns token without credentials |
+| `BINANCE_TESTNET` | dev only | `true` → use testnet.binance.vision instead of api.binance.com |
+| `SKIP_CLAUDE_ANALYSIS` | dev only | `true` → skip Claude, confirm signal with confidence=80 (for testing Telegram + auto-trade) |
 
 ## Architecture
+
+### Monorepo Structure
+```
+repo/
+  backend/          # Node.js ESM, Express 5, Prisma + PostgreSQL
+  frontend/         # React 18, Vite, Tailwind CSS
+  package.json      # root: orchestrates build+start for Railway
+  railway.toml      # Railway deployment config
+```
+
+In production, **backend serves frontend static files** from `frontend/dist/`. No separate frontend service needed.
 
 ### Backend — Node.js ESM, Express 5, Prisma + PostgreSQL
 
@@ -59,14 +83,18 @@ npm run build
 Binance REST (order book) → calculateObd() → processObdUpdate()
   → detectSignal() → save Signal → broadcast SIGNAL
   → [async] getKlines(1m) + getKlines(5m,15m) → calcTechnicals() + calcAtr(15m)
-  → Claude API → validateSlTp() → update Signal → broadcast SIGNAL_UPDATE
+  → [if SKIP_CLAUDE_ANALYSIS] skip → direction=original, confidence=80
+  → Claude API → validateSlTp() → getMidPrice(tradeSymbol) → update Signal.price
+  → update Signal → broadcast SIGNAL_UPDATE
   → Telegram (if confidence >= minConfidence)
+  → [if autoTrade] executeAutoTrade() → placeOrder() → save Trade
 ```
 
 **Key services:**
 - `services/binance/orderbook.js` — polls every 5s, exponential backoff on 418 (IP ban)
 - `services/binance/websocket.js` — subscribes to kline streams, auto-reconnects
-- `services/indicators/engine.js` — in-memory OBD history (120 snapshots), 15-min cooldown per symbol
+- `services/binance/rest.js` — public data via `data-api.binance.vision`, private via `api.binance.com` (or testnet)
+- `services/indicators/engine.js` — in-memory OBD history (120 snapshots), 15-min cooldown per symbol, auto-trade logic
 - `services/indicators/technicals.js` — RSI(14), ATR(14), volume trend, candle analysis, trend direction
 - `services/claude/orchestrator.js` — fetches higher TF candles (5m/15m), validates SL/TP post-response
 - `services/signals/tracker.js` — checks PENDING signals every 5s, resolves WIN/LOSS/BREAKEVEN after 1h timeout
@@ -80,6 +108,11 @@ Binance REST (order book) → calculateObd() → processObdUpdate()
 
 **SHORT:** last 12 snapshots all-OBD maximums spiked > `dipThreshold` above previous 12-24 snapshot minimums, AND current values are falling back (< max - 2)
 
+### Entry Price Tracking
+Signal price is recorded twice:
+1. At OBD detection (`midPrice`) — saved immediately to DB
+2. After Claude response (if direction ≠ WAIT) — `getMidPrice(tradeSymbol)` fetches fresh price from `bookTicker`, updates `signal.price`. Uses `tradeSymbol` (USDT pair) not `monitorSymbol` (USDC pair).
+
 ### Commission Math Validation (`orchestrator.js:validateSlTp`)
 
 Applied after every Claude response:
@@ -89,20 +122,34 @@ Applied after every Claude response:
 
 Claude receives `ATR(15m)` and is instructed to use it for SL/TP sizing (not ATR(1m)).
 
+### Auto-Trading (`engine.js:executeAutoTrade`)
+
+Triggered after Claude confirms (direction ≠ WAIT) if `Settings.autoTrade = true`:
+1. Check `confidence >= minConfidence`
+2. Check open trades count < `maxOpenTrades`
+3. `quantity = autoTradeAmount / entryPrice`
+4. `placeOrder()` → MARKET entry + OCO exit (if SL+TP available)
+5. Save to `Trade` table with `signalId` linkage
+6. Send Telegram notification about auto-trade
+
+SHORT signals on Spot = SELL market order (sells held asset, not futures short).
+
 ### Database Schema (Prisma/PostgreSQL)
 
 Models: `User`, `Settings` (singleton id=1), `TradingPair`, `Signal`, `Trade`
 
-**Settings fields:** `claudePrompt`, `binanceApiKey`/`binanceSecret` (AES-256-GCM encrypted), `telegramToken`, `telegramChatId`, `dipThreshold` (default 10), `minConfidence` (default 65)
+**Settings fields:** `claudePrompt`, `binanceApiKey`/`binanceSecret` (AES-256-GCM encrypted), `telegramToken`, `telegramChatId`, `dipThreshold` (default 10), `minConfidence` (default 65), `autoTrade` (default false), `autoTradeAmount` (default 10 USDT), `maxOpenTrades` (default 1)
 
 **Signal outcome tracking:** `outcome` (WIN/LOSS/BREAKEVEN/null=PENDING), `outcomePrice`, `outcomePnl`, `outcomeAt`, `maxPrice`, `minPrice`
+
+**Trade fields:** `signalId` (links to Signal), `symbol`, `side`, `quantity`, `price`, `stopLoss`, `takeProfit`, `binanceOrderId`, `status`, `pnl`
 
 ### Frontend — React 18, Vite, Tailwind CSS, TradingView Lightweight Charts
 
 **Routes:** `/login` → `/` (Dashboard) → `/signals` → `/stats` → `/settings`
 
 **Dashboard data flow:**
-- `useWebSocket` hook → `onWsMessage` callback → `obdRef` (current OBD) + `obdHistoryRef` (720 snapshots) + `klinesRef`
+- `useWebSocket` hook → `onWsMessage` callback → `obdRef` + `obdHistoryRef` (720 snapshots) + `klinesRef`
 - `PairChart` polls `klineRef` every 1s for real-time candle updates
 - `ObdCharts` polls `obdHistoryRef` every 2s for OBD line charts
 - Historical candles loaded directly from `data-api.binance.vision` (public, no auth)
@@ -121,17 +168,20 @@ GET    /api/balance                   — Binance account balance
 GET    /api/klines?symbol=&interval=&limit=
 GET    /api/stats
 GET    /api/settings
-PUT    /api/settings/prompt|keys|telegram|threshold|confidence
+PUT    /api/settings/prompt|keys|telegram|threshold|confidence|autotrade
 ```
 
 ## Important Implementation Notes
 
 - **Trade order flow:** `placeOrder()` always places MARKET entry first, then OCO exit if SL+TP provided. If OCO fails after entry fill → logged as warning, entry still recorded.
-- **Binance URLs:** `data-api.binance.vision` for public data (no geo-block), `api.binance.com` for private (needs non-Russian IP).
-- **monitorSymbol vs tradeSymbol:** USDC pairs for OBD monitoring, USDT pairs for actual orders.
-- **SHORT on Spot:** Places a SELL market order (sells held asset), not a futures short. For true shorting, Futures API (`fapi.binance.com`) would be needed.
-- **Telegram notifications:** Sent only after Claude confirms (direction ≠ WAIT) AND `confidence >= minConfidence` (configurable in Settings).
+- **Binance URLs:** `data-api.binance.vision` for public data (no geo-block), `api.binance.com` for private (needs non-Russian IP). Railway must be in EU region to avoid 451.
+- **Testnet:** Set `BINANCE_TESTNET=true` to use `testnet.binance.vision`. Get test keys at `testnet.binance.vision`.
+- **monitorSymbol vs tradeSymbol:** USDC pairs for OBD monitoring, USDT pairs for actual orders and price fetching.
+- **SHORT on Spot:** Places a SELL market order (sells held asset), not a futures short.
+- **Telegram notifications:** Sent only after Claude confirms (direction ≠ WAIT) AND `confidence >= minConfidence`. Token and Chat ID are masked in API responses.
 - **OBD systematic bias:** The asymmetric bid/ask depth ranges (e.g. bid 2.5% / ask 5%) cause OBD to read below 50 even in neutral markets. The "neutral" level is practically ~35-40, not 50.
+- **Express 5:** Wildcard routes use `app.use()` not `app.get('*')` — Express 5 dropped the `*` syntax.
+- **bcryptjs:** Uses pure-JS bcryptjs (not bcrypt) to avoid native build deps and tar vulnerability.
 
 ## Trading Pairs (default)
 
@@ -144,4 +194,14 @@ PUT    /api/settings/prompt|keys|telegram|threshold|confidence
 
 ## ROADMAP Status
 
-See `ROADMAP.md` for full details. Completed: Priority 1 (Claude prompt), 2 (confidence filter), 3 (multi-timeframe), 5 (SHORT signals). Remaining: Priority 4 (correct entry price tracking), 6 (Redis/BullMQ decision), 7 (auto-trading).
+See `ROADMAP.md` for full details.
+
+| Priority | Task | Status |
+|---|---|---|
+| 1 | Улучшить промпт Claude | ✅ |
+| 2 | Фильтр сигналов по confidence | ✅ |
+| 3 | Multi-timeframe контекст | ✅ |
+| 4 | Корректная цена входа | ✅ |
+| 5 | SHORT сигналы | ✅ |
+| 6 | Бэктестинг на реальных данных | Не начато |
+| 7 | Автоторговля | ✅ |
