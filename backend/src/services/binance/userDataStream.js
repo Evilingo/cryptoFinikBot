@@ -9,6 +9,9 @@ const WS_BASE = process.env.BINANCE_TESTNET === 'true'
   ? 'wss://testnet.binance.vision/ws'
   : 'wss://stream.binance.com:9443/ws';
 
+// Note: Binance testnet has limited WebSocket support and may return 410 for userDataStream.
+// In that case startUserDataStream() exits silently — trade tracking via tracker.js still works.
+
 const KEEPALIVE_INTERVAL = 20 * 60 * 1000; // 20 min (Binance invalidates after 60 min without ping)
 
 let ws = null;

@@ -20,9 +20,9 @@ import { trackSignalOutcomes } from '../signals/tracker.js';
 import { broadcast } from '../../ws/hub.js';
 import { buildHeatmap } from './orderbook.js';
 
-const BINANCE_STREAM = process.env.BINANCE_TESTNET === 'true'
-  ? 'wss://testnet.binance.vision/stream'
-  : 'wss://stream.binance.com:9443/stream';
+// Always use production stream URL for market data (same as kline WS).
+// BINANCE_TESTNET only affects private trade endpoints, not public market streams.
+const BINANCE_STREAM = 'wss://stream.binance.com:9443/stream';
 
 // Per-symbol order book state
 const books = new Map(); // symbol → { bids: Map<price, qty>, asks: Map<price, qty>, lastUpdateId }
