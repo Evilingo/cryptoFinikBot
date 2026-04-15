@@ -78,29 +78,42 @@ In production, **backend serves frontend static files** from `frontend/dist/`. N
 
 ### Backend — Node.js ESM, Express 5, Prisma + PostgreSQL
 
-**Signal detection pipeline (runs every 5 seconds):**
+**Signal detection pipeline (WebSocket-based, ~100ms updates):**
 ```
-Binance REST (order book) → calculateObd() → processObdUpdate()
+Binance @depth@100ms WS → applyDiffUpdate() → calculateObd() → processObdUpdate()
+  → save ObdSnapshot (every 30s, for backtesting)
   → detectSignal() → save Signal → broadcast SIGNAL
   → [async] getKlines(1m) + getKlines(5m,15m) → calcTechnicals() + calcAtr(15m)
   → [if SKIP_CLAUDE_ANALYSIS] skip → direction=original, confidence=80
   → Claude API → validateSlTp() → getMidPrice(tradeSymbol) → update Signal.price
   → update Signal → broadcast SIGNAL_UPDATE
   → Telegram (if confidence >= minConfidence)
-  → [if autoTrade] executeAutoTrade() → placeOrder() → save Trade
+  → [if autoTrade] executeAutoTrade() → balance check (SHORT) → placeOrder() → save Trade
 ```
 
 **Key services:**
-- `services/binance/orderbook.js` — polls every 5s, exponential backoff on 418 (IP ban)
+- `services/binance/orderBookWs.js` — WebSocket @depth@100ms, full diff-depth protocol (snapshot+incremental), replaces REST polling
+- `services/binance/orderbook.js` — legacy REST poller (kept for graceful shutdown), exports `buildHeatmap`
 - `services/binance/websocket.js` — subscribes to kline streams, auto-reconnects
-- `services/binance/rest.js` — public data via `data-api.binance.vision`, private via `api.binance.com` (or testnet)
-- `services/indicators/engine.js` — in-memory OBD history (120 snapshots), 15-min cooldown per symbol, auto-trade logic
+- `services/binance/rest.js` — public data via `data-api.binance.vision`, private via `api.binance.com` (or testnet); exports `createListenKey`, `keepAliveListenKey`
+- `services/binance/userDataStream.js` — Binance User Data Stream WebSocket; listens for FILLED exit orders → closes Trade + resolves Signal WIN/LOSS with real PnL + Telegram
+- `services/indicators/engine.js` — in-memory OBD history (120 snapshots), 15-min cooldown, OBD snapshot recording (30s), auto-trade logic; exports `detectSignalFromHistory` (pure fn for backtesting)
+- `services/indicators/orderBookDepth.js` — OBD by level count (100/300/800/2000 levels); price-% approach gave identical values since all levels fall within 2.5% range
 - `services/indicators/technicals.js` — RSI(14), ATR(14), volume trend, candle analysis, trend direction
 - `services/claude/orchestrator.js` — fetches higher TF candles (5m/15m), validates SL/TP post-response
-- `services/signals/tracker.js` — checks PENDING signals every 5s, resolves WIN/LOSS/BREAKEVEN after 1h timeout
+- `services/signals/tracker.js` — checks PENDING signals every 5s, resolves WIN/LOSS/BREAKEVEN after 1h timeout; `getEnhancedStats()` for analytics; `runBacktest()` for OBD replay
+- `services/notifications/notifier.js` — Telegram outbound notifications
+- `services/notifications/telegramBot.js` — Telegram bot: webhook handler, `/positions` and `/stats` commands, responds to configured channel chatId
 - `ws/hub.js` — JWT-authenticated WebSocket at `/ws?token=...`
 
 **WebSocket message types:** `OBD_UPDATE`, `KLINE`, `SIGNAL`, `SIGNAL_UPDATE`, `SIGNAL_OUTCOME`
+
+### OBD Calculation
+Uses level-count based depth (not price-percentage). Binance depth API returns levels within ~0.1-0.5% of price even with limit=5000, so percentage ranges (2.5%-25%) gave identical values. Solution: measure imbalance at fixed level counts:
+- OBD1: top 100 levels (near-spread pressure)
+- OBD2: top 300 levels
+- OBD3: top 800 levels
+- OBD4: top 2000 levels
 
 ### Signal Detection Logic (`engine.js:detectSignal`)
 
@@ -127,22 +140,39 @@ Claude receives `ATR(15m)` and is instructed to use it for SL/TP sizing (not ATR
 Triggered after Claude confirms (direction ≠ WAIT) if `Settings.autoTrade = true`:
 1. Check `confidence >= minConfidence`
 2. Check open trades count < `maxOpenTrades`
-3. `quantity = autoTradeAmount / entryPrice`
-4. `placeOrder()` → MARKET entry + OCO exit (if SL+TP available)
-5. Save to `Trade` table with `signalId` linkage
-6. Send Telegram notification about auto-trade
+3. For SHORT: check asset balance via `getAccountBalance()` — skip if insufficient
+4. `quantity = autoTradeAmount / entryPrice`
+5. `placeOrder()` → MARKET entry + OCO exit (if SL+TP available)
+6. Save to `Trade` table with `signalId` linkage
+7. Send Telegram notification about auto-trade
 
 SHORT signals on Spot = SELL market order (sells held asset, not futures short).
 
+### User Data Stream (`userDataStream.js`)
+Connects to Binance WebSocket for real order execution events:
+- Creates `listenKey` via `POST /api/v3/userDataStream`, refreshes every 20 min
+- On FILLED event for LIMIT (TP) or STOP_LOSS_LIMIT (SL): closes Trade, calculates real PnL, resolves Signal outcome, sends Telegram
+- Reconnects automatically on disconnect; skipped gracefully if no API keys configured
+
+### Backtesting (`tracker.js:runBacktest`)
+Uses `ObdSnapshot` table (filled every 30s) to replay signal detection:
+- `detectSignalFromHistory()` — pure sync version of `detectSignal`, used for replay
+- Applies configurable SL%/TP% to determine WIN/LOSS for each simulated signal
+- Returns equity curve + stats
+
+**ObdSnapshot accumulation:** snapshots are saved every 30s per symbol automatically. After 1 week ~80K rows, after 1 month ~320K rows. The more data, the more reliable the backtest. Do not delete ObdSnapshots unless storage is critically low.
+
 ### Database Schema (Prisma/PostgreSQL)
 
-Models: `User`, `Settings` (singleton id=1), `TradingPair`, `Signal`, `Trade`
+Models: `User`, `Settings` (singleton id=1), `TradingPair`, `Signal`, `Trade`, `ObdSnapshot`
 
 **Settings fields:** `claudePrompt`, `binanceApiKey`/`binanceSecret` (AES-256-GCM encrypted), `telegramToken`, `telegramChatId`, `dipThreshold` (default 10), `minConfidence` (default 65), `autoTrade` (default false), `autoTradeAmount` (default 10 USDT), `maxOpenTrades` (default 1)
 
 **Signal outcome tracking:** `outcome` (WIN/LOSS/BREAKEVEN/null=PENDING), `outcomePrice`, `outcomePnl`, `outcomeAt`, `maxPrice`, `minPrice`
 
 **Trade fields:** `signalId` (links to Signal), `symbol`, `side`, `quantity`, `price`, `stopLoss`, `takeProfit`, `binanceOrderId`, `status`, `pnl`
+
+**ObdSnapshot fields:** `pairId`, `obd1`-`obd4`, `midPrice`, `createdAt`. Index on `(pairId, createdAt)` for fast range queries. Do not truncate — this is the backtesting dataset.
 
 ### Frontend — React 18, Vite, Tailwind CSS, TradingView Lightweight Charts
 
@@ -167,8 +197,12 @@ GET    /api/trade                     — trade history
 GET    /api/balance                   — Binance account balance
 GET    /api/klines?symbol=&interval=&limit=
 GET    /api/stats
+GET    /api/stats/analytics             — winrate by confidence/direction/hour
+GET    /api/stats/snapshots             — ObdSnapshot counts per pair
+GET    /api/stats/backtest?pairId=&from=&to=&threshold=&slPct=&tpPct=
 GET    /api/settings
 PUT    /api/settings/prompt|keys|telegram|threshold|confidence|autotrade
+POST   /telegram/webhook               — Telegram bot webhook (no auth)
 ```
 
 ## Important Implementation Notes
@@ -179,7 +213,8 @@ PUT    /api/settings/prompt|keys|telegram|threshold|confidence|autotrade
 - **monitorSymbol vs tradeSymbol:** USDC pairs for OBD monitoring, USDT pairs for actual orders and price fetching.
 - **SHORT on Spot:** Places a SELL market order (sells held asset), not a futures short.
 - **Telegram notifications:** Sent only after Claude confirms (direction ≠ WAIT) AND `confidence >= minConfidence`. Token and Chat ID are masked in API responses.
-- **OBD systematic bias:** The asymmetric bid/ask depth ranges (e.g. bid 2.5% / ask 5%) cause OBD to read below 50 even in neutral markets. The "neutral" level is practically ~35-40, not 50.
+- **OBD level-count based:** switched from price-% to fixed level counts (100/300/800/2000). Old price-% approach gave identical values for all 4 indicators because all depth levels fall within 2.5% range for BTC/ETH.
+- **ObdSnapshot table:** grows ~23K rows/day (4 pairs × 30s interval). Do NOT truncate — it's the backtesting dataset. After 90 days ~2M rows, manageable with the `(pairId, createdAt)` index.
 - **Express 5:** Wildcard routes use `app.use()` not `app.get('*')` — Express 5 dropped the `*` syntax.
 - **bcryptjs:** Uses pure-JS bcryptjs (not bcrypt) to avoid native build deps and tar vulnerability.
 
