@@ -126,6 +126,32 @@ function formatPrice(price, precision) {
   return parseFloat(price).toFixed(precision);
 }
 
+// User Data Stream — no signature needed, only API key header
+async function keyOnlyRequest(method, path, params = {}) {
+  const { apiKey } = await getKeys();
+  const query = new URLSearchParams(params).toString();
+  const url = query ? `${TRADE_URL}${path}?${query}` : `${TRADE_URL}${path}`;
+  const res = await fetch(url, { method, headers: { 'X-MBX-APIKEY': apiKey } });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(`Binance error: ${data.msg || res.status}`);
+  }
+  return res.json();
+}
+
+export async function createListenKey() {
+  const data = await keyOnlyRequest('POST', '/api/v3/userDataStream');
+  return data.listenKey;
+}
+
+export async function keepAliveListenKey(listenKey) {
+  await keyOnlyRequest('PUT', '/api/v3/userDataStream', { listenKey });
+}
+
+export async function deleteListenKey(listenKey) {
+  await keyOnlyRequest('DELETE', '/api/v3/userDataStream', { listenKey }).catch(() => {});
+}
+
 export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit }) {
   const info = await getSymbolInfo(symbol);
   const qtyStr = formatPrice(quantity, info.qtyPrecision);

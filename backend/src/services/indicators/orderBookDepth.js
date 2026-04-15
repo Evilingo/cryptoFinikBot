@@ -1,48 +1,43 @@
 /**
- * OBD индикаторы — вычисление Depth Ratio по формуле:
- * Depth Ratio = bid_volume(X%) / (bid_volume(X%) + ask_volume(Y%)) * 100
+ * OBD индикаторы — Order Book Imbalance по количеству уровней.
  *
- * 4 индикатора с разными уровнями глубины:
- * OBD-1: bid 2.5% / ask 5%
- * OBD-2: bid 5%   / ask 10%
- * OBD-3: bid 5%   / ask 25%
- * OBD-4: bid 10%  / ask 25%
+ * Binance REST depth API возвращает уровни близко к спреду (~0.1-0.5% диапазон
+ * даже с limit=5000), поэтому процентные диапазоны (2.5%-25%) давали одинаковые
+ * значения для всех 4 индикаторов. Решение: измерять imbalance по первым N уровням.
+ *
+ * OBD-1: топ-100 уровней  — давление у спреда (HFT/маркет-мейкеры)
+ * OBD-2: топ-300 уровней  — ближняя зона
+ * OBD-3: топ-800 уровней  — средняя глубина
+ * OBD-4: топ-2000 уровней — широкая глубина
+ *
+ * Формула: bidVol / (bidVol + askVol) * 100  →  0-100, >50 = давление покупателей
  */
 
 const OBD_LEVELS = [
-  { name: 'obd1', bidPct: 2.5, askPct: 5 },
-  { name: 'obd2', bidPct: 5, askPct: 10 },
-  { name: 'obd3', bidPct: 5, askPct: 25 },
-  { name: 'obd4', bidPct: 10, askPct: 25 },
+  { name: 'obd1', levels: 100 },
+  { name: 'obd2', levels: 300 },
+  { name: 'obd3', levels: 800 },
+  { name: 'obd4', levels: 2000 },
 ];
 
-function volumeInRange(levels, midPrice, pct, isBid) {
-  const boundary = isBid
-    ? midPrice * (1 - pct / 100)
-    : midPrice * (1 + pct / 100);
-
+function volumeAtLevels(entries, count) {
   let total = 0;
-  for (const [priceStr, qtyStr] of levels) {
-    const price = parseFloat(priceStr);
-    const qty = parseFloat(qtyStr);
-    if (isBid && price < boundary) break;
-    if (!isBid && price > boundary) break;
-    total += qty;
+  const limit = Math.min(count, entries.length);
+  for (let i = 0; i < limit; i++) {
+    total += parseFloat(entries[i][1]);
   }
   return total;
 }
 
 export function calculateObd(bids, asks, midPrice) {
   const result = {};
-
   for (const level of OBD_LEVELS) {
-    const bidVol = volumeInRange(bids, midPrice, level.bidPct, true);
-    const askVol = volumeInRange(asks, midPrice, level.askPct, false);
+    const bidVol = volumeAtLevels(bids, level.levels);
+    const askVol = volumeAtLevels(asks, level.levels);
     const total = bidVol + askVol;
     result[level.name] = total > 0
       ? Math.round((bidVol / total) * 10000) / 100
       : 50;
   }
-
   return result;
 }

@@ -10,7 +10,9 @@ import { logger } from './config/logger.js';
 import { prisma } from './db/prisma.js';
 import { initWebSocketHub } from './ws/hub.js';
 import { startOrderBookPolling, stopOrderBookPolling } from './services/binance/orderbook.js';
+import { startOrderBookWs, stopOrderBookWs } from './services/binance/orderBookWs.js';
 import { startBinanceWs, stopBinanceWs } from './services/binance/websocket.js';
+import { startUserDataStream, stopUserDataStream } from './services/binance/userDataStream.js';
 
 import { DEFAULT_PROMPT } from './services/claude/prompts.js';
 import authRoutes from './routes/auth.js';
@@ -128,8 +130,11 @@ server.listen(env.port, async () => {
     logger.error('Seed failed', { error: err.message });
   }
 
-  startOrderBookPolling();
+  startOrderBookWs(); // WebSocket-based, replaces REST polling (no rate limit risk)
   startBinanceWs();
+  startUserDataStream().catch((err) =>
+    logger.warn('User Data Stream start failed', { error: err.message })
+  );
 
   // Register Telegram webhook (non-blocking)
   const publicUrl = process.env.RAILWAY_PUBLIC_DOMAIN
@@ -143,8 +148,10 @@ server.listen(env.port, async () => {
 // Graceful shutdown
 async function shutdown(signal) {
   logger.info(`${signal} received, shutting down...`);
-  stopOrderBookPolling();
+  stopOrderBookPolling(); // kept for graceful shutdown compatibility
+  stopOrderBookWs();
   stopBinanceWs();
+  stopUserDataStream();
   server.close();
   await prisma.$disconnect();
   process.exit(0);

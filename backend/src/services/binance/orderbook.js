@@ -65,7 +65,7 @@ async function pollOrderBooks() {
   }
 }
 
-function buildHeatmap(bids, asks, midPrice) {
+export function buildHeatmap(bids, asks, midPrice) {
   const stepPct = 0.1;
   const rangePct = 5;
   const steps = Math.floor(rangePct / stepPct);
