@@ -113,17 +113,17 @@ export async function handleTelegramUpdate(update) {
   const msg = update.message;
   if (!msg?.text) return;
 
-  const chatId = msg.chat.id;
+  const channelChatId = settings.telegramChatId; // always reply to the configured channel
   const text = msg.text.split('@')[0].trim(); // strip @botname suffix
 
   if (text === '/start' || text === '/help') {
-    await sendBotMessage(token, chatId,
+    await sendBotMessage(token, channelChatId,
       '👋 <b>BestTrader Bot</b>\n\n/positions — открытые сделки\n/stats — статистика сигналов'
     );
   } else if (text === '/positions') {
-    await handlePositions(token, chatId);
+    await handlePositions(token, channelChatId);
   } else if (text === '/stats') {
-    await handleStats(token, chatId, 'week');
+    await handleStats(token, channelChatId, 'week');
   }
 }
 
