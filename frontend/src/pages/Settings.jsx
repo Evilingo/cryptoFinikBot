@@ -17,6 +17,7 @@ export default function Settings() {
   const [autoTrade, setAutoTrade] = useState(false);
   const [autoTradeAmount, setAutoTradeAmount] = useState(10);
   const [maxOpenTrades, setMaxOpenTrades] = useState(1);
+  const [balanceResult, setBalanceResult] = useState(null);
 
   useEffect(() => {
     api.get('/settings').then(({ data }) => {
@@ -111,6 +112,21 @@ export default function Settings() {
     }
   };
 
+  const testConnection = async () => {
+    setBalanceResult(null);
+    try {
+      const { data } = await api.get('/balance');
+      if (!data.length) {
+        setBalanceResult({ ok: true, text: 'Подключено. Баланс пуст (нет активов).' });
+      } else {
+        const lines = data.map((b) => `${b.asset}: ${parseFloat(b.free).toFixed(4)}`).join('  |  ');
+        setBalanceResult({ ok: true, text: `Подключено. ${lines}` });
+      }
+    } catch (err) {
+      setBalanceResult({ ok: false, text: err.response?.data?.error || err.message });
+    }
+  };
+
   const saveConfidence = async () => {
     try {
       await api.put('/settings/confidence', { minConfidence: Number(minConfidence) });
@@ -194,9 +210,19 @@ export default function Settings() {
             <input type="password" value={bybitSecret} onChange={(e) => setBybitSecret(e.target.value)} className="w-full" placeholder="Enter new secret" />
           </div>
         </div>
-        <button onClick={saveBybitKeys} className="mt-3 px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
-          Save Keys
-        </button>
+        <div className="mt-3 flex items-center gap-3">
+          <button onClick={saveBybitKeys} className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
+            Save Keys
+          </button>
+          <button onClick={testConnection} className="px-4 py-2 bg-dark-600 hover:bg-dark-500 rounded-lg text-sm font-medium">
+            Проверить подключение
+          </button>
+        </div>
+        {balanceResult && (
+          <p className={`mt-2 text-xs ${balanceResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+            {balanceResult.ok ? '✓' : '✗'} {balanceResult.text}
+          </p>
+        )}
       </section>
 
       {/* Signal Threshold */}
