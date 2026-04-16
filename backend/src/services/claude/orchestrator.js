@@ -230,8 +230,9 @@ ${JSON.stringify(candles.slice(-20))}
   const text = await callClaude(systemPrompt, userMessage);
   logger.debug('Claude response', { text });
 
-  // Strip markdown code fences if Claude wraps response in ```json ... ```
-  const jsonText = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  // Extract JSON object — handles plain JSON, ```json fences, and any surrounding text
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  const jsonText = jsonMatch ? jsonMatch[0] : text.trim();
 
   let parsed;
   try {
