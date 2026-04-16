@@ -13,6 +13,9 @@ import { startOrderBookPolling, stopOrderBookPolling } from './services/binance/
 import { startOrderBookWs, stopOrderBookWs } from './services/binance/orderBookWs.js';
 import { startBinanceWs, stopBinanceWs } from './services/binance/websocket.js';
 import { startUserDataStream, stopUserDataStream } from './services/binance/userDataStream.js';
+import { startBybitOrderBookWs, stopBybitOrderBookWs } from './services/bybit/orderBookWs.js';
+import { startBybitWs, stopBybitWs } from './services/bybit/websocket.js';
+import { startBybitUserDataStream, stopBybitUserDataStream } from './services/bybit/userDataStream.js';
 
 import { DEFAULT_PROMPT } from './services/claude/prompts.js';
 import authRoutes from './routes/auth.js';
@@ -130,11 +133,30 @@ server.listen(env.port, async () => {
     logger.error('Seed failed', { error: err.message });
   }
 
-  startOrderBookWs(); // WebSocket-based, replaces REST polling (no rate limit risk)
-  startBinanceWs();
-  startUserDataStream().catch((err) =>
-    logger.warn('User Data Stream start failed', { error: err.message })
-  );
+  // Start exchange-specific WebSocket services
+  let exchange = 'binance';
+  try {
+    const s = await prisma.settings.findUnique({ where: { id: 1 } });
+    exchange = s?.exchange || process.env.EXCHANGE || 'binance';
+  } catch (err) {
+    logger.warn('Failed to read exchange setting, defaulting to binance', { error: err.message });
+  }
+
+  if (exchange === 'bybit') {
+    logger.info('Starting Bybit WebSocket services');
+    startBybitOrderBookWs();
+    startBybitWs();
+    startBybitUserDataStream().catch((err) =>
+      logger.warn('Bybit User Data Stream start failed', { error: err.message })
+    );
+  } else {
+    logger.info('Starting Binance WebSocket services');
+    startOrderBookWs(); // WebSocket-based, replaces REST polling (no rate limit risk)
+    startBinanceWs();
+    startUserDataStream().catch((err) =>
+      logger.warn('User Data Stream start failed', { error: err.message })
+    );
+  }
 
   // Register Telegram webhook (non-blocking)
   const publicUrl = process.env.RAILWAY_PUBLIC_DOMAIN
@@ -148,10 +170,14 @@ server.listen(env.port, async () => {
 // Graceful shutdown
 async function shutdown(signal) {
   logger.info(`${signal} received, shutting down...`);
+  // Stop both exchange WS sets — whichever is running will shut down cleanly
   stopOrderBookPolling(); // kept for graceful shutdown compatibility
   stopOrderBookWs();
   stopBinanceWs();
   stopUserDataStream();
+  stopBybitOrderBookWs();
+  stopBybitWs();
+  stopBybitUserDataStream();
   server.close();
   await prisma.$disconnect();
   process.exit(0);

@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../../config/env.js';
 import { getSystemPrompt } from './prompts.js';
 import { calcTechnicals, calcTrend, calcAtr } from '../indicators/technicals.js';
-import { getKlines } from '../binance/rest.js';
+import { getKlines } from '../exchange/index.js';
 import { logger } from '../../config/logger.js';
 
 const anthropic = env.anthropicApiKey ? new Anthropic({ apiKey: env.anthropicApiKey }) : null;
@@ -230,9 +230,12 @@ ${JSON.stringify(candles.slice(-20))}
   const text = await callClaude(systemPrompt, userMessage);
   logger.debug('Claude response', { text });
 
+  // Strip markdown code fences if Claude wraps response in ```json ... ```
+  const jsonText = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
   let parsed;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(jsonText);
   } catch {
     logger.error('Failed to parse Claude response as JSON', { text });
     return {

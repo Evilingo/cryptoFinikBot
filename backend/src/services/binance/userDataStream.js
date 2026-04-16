@@ -47,8 +47,9 @@ async function handleExecutionReport(report) {
   });
 
   if (trade.signalId) {
-    await prisma.signal.update({
-      where: { id: trade.signalId },
+    // Use updateMany with outcome: null guard to prevent race condition with tracker.js
+    await prisma.signal.updateMany({
+      where: { id: trade.signalId, outcome: null },
       data: {
         outcome,
         outcomePnl: roundedPnl,

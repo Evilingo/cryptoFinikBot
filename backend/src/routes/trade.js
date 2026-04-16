@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { tradeLimiter } from '../middleware/rateLimit.js';
-import { placeOrder } from '../services/binance/rest.js';
+import { placeOrder } from '../services/exchange/index.js';
 import { prisma } from '../db/prisma.js';
 import { logger } from '../config/logger.js';
 
@@ -42,7 +42,7 @@ router.post('/order', authMiddleware, tradeLimiter, async (req, res) => {
     res.json(result);
   } catch (err) {
     logger.error('Trade failed', { error: err.message, symbol, side, quantity });
-    const msg = err.message?.includes('Binance') ? err.message : 'Trade execution failed';
+    const msg = (err.message?.includes('Binance') || err.message?.includes('Bybit')) ? err.message : 'Trade execution failed';
     res.status(500).json({ error: msg });
   }
 });

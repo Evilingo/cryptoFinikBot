@@ -67,34 +67,44 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
       outcome = outcomePnl > 0.1 ? 'WIN' : outcomePnl < -0.1 ? 'LOSS' : 'BREAKEVEN';
     }
 
-    const updateData = { maxPrice, minPrice };
-
     if (outcome) {
-      updateData.outcome = outcome;
-      updateData.outcomePrice = outcomePrice;
-      updateData.outcomePnl = Math.round(outcomePnl * 100) / 100;
-      updateData.outcomeAt = new Date();
-
+      const outcomePnlRounded = Math.round(outcomePnl * 100) / 100;
       logger.info(`Signal #${signal.id} ${signal.pair.monitorSymbol} resolved: ${outcome}`, {
-        pnl: updateData.outcomePnl,
+        pnl: outcomePnlRounded,
         entry: signal.price,
         exit: outcomePrice,
       });
 
-      broadcast({
-        type: 'SIGNAL_OUTCOME',
-        signalId: signal.id,
-        symbol: signal.pair.monitorSymbol,
-        outcome,
-        pnl: updateData.outcomePnl,
-        outcomePrice,
+      // Use updateMany with outcome: null guard to prevent race condition with userDataStream
+      const updated = await prisma.signal.updateMany({
+        where: { id: signal.id, outcome: null },
+        data: {
+          outcome,
+          outcomePrice,
+          outcomePnl: outcomePnlRounded,
+          outcomeAt: new Date(),
+          maxPrice,
+          minPrice,
+        },
+      });
+
+      if (updated.count > 0) {
+        broadcast({
+          type: 'SIGNAL_OUTCOME',
+          signalId: signal.id,
+          symbol: signal.pair.monitorSymbol,
+          outcome,
+          pnl: outcomePnlRounded,
+          outcomePrice,
+        });
+      }
+    } else {
+      // Only update price tracking, no outcome to set
+      await prisma.signal.update({
+        where: { id: signal.id },
+        data: { maxPrice, minPrice },
       });
     }
-
-    await prisma.signal.update({
-      where: { id: signal.id },
-      data: updateData,
-    });
   }
 }
 

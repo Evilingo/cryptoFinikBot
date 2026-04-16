@@ -158,9 +158,9 @@ export async function startOrderBookWs() {
       if (!pair) return;
 
       if (!synced.has(symbol)) {
-        // Buffer events until snapshot sync is complete
+        // Buffer events until snapshot sync is complete (cap at 1000 to prevent OOM)
         const buf = buffers.get(symbol);
-        if (buf) buf.push(evt);
+        if (buf && buf.length < 1000) buf.push(evt);
         return;
       }
 

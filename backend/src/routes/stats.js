@@ -44,13 +44,33 @@ router.get('/backtest', authMiddleware, async (req, res) => {
   if (!pairId || !from || !to) {
     return res.status(400).json({ error: 'pairId, from, to are required' });
   }
+
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+    return res.status(400).json({ error: 'Invalid date format for from/to' });
+  }
+  if (fromDate >= toDate) {
+    return res.status(400).json({ error: 'from must be before to' });
+  }
+
+  const parsedThreshold = threshold ? parseFloat(threshold) : 10;
+  const parsedSl = slPct ? parseFloat(slPct) : 1.5;
+  const parsedTp = tpPct ? parseFloat(tpPct) : 3.0;
+  if (parsedThreshold < 1 || parsedThreshold > 100) {
+    return res.status(400).json({ error: 'threshold must be between 1 and 100' });
+  }
+  if (parsedSl <= 0 || parsedTp <= 0) {
+    return res.status(400).json({ error: 'slPct and tpPct must be positive' });
+  }
+
   const result = await runBacktest({
     pairId: parseInt(pairId),
-    from,
-    to,
-    threshold: threshold ? parseFloat(threshold) : 10,
-    slPct: slPct ? parseFloat(slPct) : 1.5,
-    tpPct: tpPct ? parseFloat(tpPct) : 3.0,
+    from: fromDate,
+    to: toDate,
+    threshold: parsedThreshold,
+    slPct: parsedSl,
+    tpPct: parsedTp,
   });
   res.json(result);
 });

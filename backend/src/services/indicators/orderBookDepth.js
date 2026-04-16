@@ -11,14 +11,20 @@
  * OBD-4: топ-2000 уровней — широкая глубина
  *
  * Формула: bidVol / (bidVol + askVol) * 100  →  0-100, >50 = давление покупателей
+ *
+ * Bybit spot максимум 200 уровней — используй BYBIT_OBD_LEVELS:
+ * OBD-1: 25, OBD-2: 50, OBD-3: 100, OBD-4: 200
  */
 
-const OBD_LEVELS = [
+export const BINANCE_OBD_LEVELS = [
   { name: 'obd1', levels: 100 },
   { name: 'obd2', levels: 300 },
   { name: 'obd3', levels: 800 },
   { name: 'obd4', levels: 2000 },
 ];
+
+// Backward-compat alias
+export const OBD_LEVELS = BINANCE_OBD_LEVELS;
 
 function volumeAtLevels(entries, count) {
   let total = 0;
@@ -29,9 +35,17 @@ function volumeAtLevels(entries, count) {
   return total;
 }
 
-export function calculateObd(bids, asks, midPrice) {
+/**
+ * Calculate Order Book Depth indicators.
+ * @param {Array} bids - sorted bids (highest price first), [[price, qty], ...]
+ * @param {Array} asks - sorted asks (lowest price first), [[price, qty], ...]
+ * @param {number} midPrice - current mid price
+ * @param {Array} levels - optional custom level config (defaults to Binance 100/300/800/2000)
+ * @returns {{ obd1, obd2, obd3, obd4 }}
+ */
+export function calculateObd(bids, asks, midPrice, levels = BINANCE_OBD_LEVELS) {
   const result = {};
-  for (const level of OBD_LEVELS) {
+  for (const level of levels) {
     const bidVol = volumeAtLevels(bids, level.levels);
     const askVol = volumeAtLevels(asks, level.levels);
     const total = bidVol + askVol;

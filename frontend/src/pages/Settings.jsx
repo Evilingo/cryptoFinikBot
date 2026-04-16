@@ -7,6 +7,9 @@ export default function Settings() {
   const [prompt, setPrompt] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [secret, setSecret] = useState('');
+  const [bybitApiKey, setBybitApiKey] = useState('');
+  const [bybitSecret, setBybitSecret] = useState('');
+  const [exchange, setExchange] = useState('binance');
   const [tgToken, setTgToken] = useState('');
   const [tgChatId, setTgChatId] = useState('');
   const [threshold, setThreshold] = useState(10);
@@ -19,6 +22,7 @@ export default function Settings() {
     api.get('/settings').then(({ data }) => {
       setSettings(data);
       setPrompt(data.claudePrompt || '');
+      setExchange(data.exchange || 'binance');
       setThreshold(data.dipThreshold ?? 10);
       setMinConfidence(data.minConfidence ?? 65);
       setAutoTrade(data.autoTrade ?? false);
@@ -45,6 +49,28 @@ export default function Settings() {
       toast.success('Binance keys saved');
       setApiKey('');
       setSecret('');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    }
+  };
+
+  const saveBybitKeys = async () => {
+    if (!bybitApiKey || !bybitSecret) return toast.error('Both API Key and Secret required');
+    try {
+      await api.put('/settings/bybit-keys', { apiKey: bybitApiKey, secret: bybitSecret });
+      toast.success('Bybit keys saved');
+      setBybitApiKey('');
+      setBybitSecret('');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    }
+  };
+
+  const saveExchange = async (value) => {
+    try {
+      await api.put('/settings/exchange', { exchange: value });
+      setExchange(value);
+      toast.success(`Exchange switched to ${value}. Restart server to apply WebSocket changes.`);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Save failed');
     }
@@ -114,6 +140,26 @@ export default function Settings() {
         </button>
       </section>
 
+      {/* Exchange Selector */}
+      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
+        <h2 className="text-lg font-semibold mb-3">Exchange</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          После смены биржи нужно перезапустить сервер (Railway redeploy) чтобы переключились WebSocket соединения.
+        </p>
+        <div className="flex gap-3">
+          {['binance', 'bybit'].map((ex) => (
+            <button
+              key={ex}
+              onClick={() => saveExchange(ex)}
+              className={`px-5 py-2 rounded-lg text-sm font-medium capitalize ${exchange === ex ? 'bg-accent-blue' : 'bg-dark-600 hover:bg-dark-500'}`}
+            >
+              {ex}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-gray-500">Активная биржа: <span className="text-white font-medium capitalize">{exchange}</span></p>
+      </section>
+
       {/* Binance Keys */}
       <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
         <h2 className="text-lg font-semibold mb-3">Binance API Keys</h2>
@@ -131,6 +177,27 @@ export default function Settings() {
           </div>
         </div>
         <button onClick={saveKeys} className="mt-3 px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
+          Save Keys
+        </button>
+      </section>
+
+      {/* Bybit Keys */}
+      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
+        <h2 className="text-lg font-semibold mb-3">Bybit API Keys</h2>
+        <p className="text-sm text-gray-500 mb-3">
+          Current: {settings.bybitApiKey || 'Not set'}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">API Key</label>
+            <input value={bybitApiKey} onChange={(e) => setBybitApiKey(e.target.value)} className="w-full" placeholder="Enter new key" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Secret</label>
+            <input type="password" value={bybitSecret} onChange={(e) => setBybitSecret(e.target.value)} className="w-full" placeholder="Enter new secret" />
+          </div>
+        </div>
+        <button onClick={saveBybitKeys} className="mt-3 px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
           Save Keys
         </button>
       </section>
@@ -211,7 +278,7 @@ export default function Settings() {
         </div>
         {autoTrade && (
           <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-600/40 rounded-lg text-xs text-yellow-400">
-            Авто-торговля активна. SHORT сигналы продают актив из портфеля (не шорт-позиция). Убедись что Binance API ключи настроены с правами на торговлю.
+            Авто-торговля активна. SHORT сигналы продают актив из портфеля (не шорт-позиция). Убедись что API ключи выбранной биржи настроены с правами на торговлю.
           </div>
         )}
         <button onClick={saveAutoTrade} className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">

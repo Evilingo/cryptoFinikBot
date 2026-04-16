@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { prisma } from '../db/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { encrypt } from '../config/crypto.js';
+import { BINANCE_PAIRS, BYBIT_PAIRS } from '../config/pairs.js';
+import { invalidateExchangeCache } from '../services/exchange/index.js';
 
 const router = Router();
 
@@ -20,6 +22,9 @@ router.get('/', authMiddleware, async (req, res) => {
     autoTrade: s.autoTrade,
     autoTradeAmount: s.autoTradeAmount,
     maxOpenTrades: s.maxOpenTrades,
+    exchange: s.exchange || 'binance',
+    bybitApiKey: s.bybitApiKey ? 'Configured ****' : 'Not set',
+    bybitSecret: s.bybitSecret ? 'Configured ****' : 'Not set',
   });
 });
 
@@ -45,6 +50,62 @@ router.put('/keys', authMiddleware, async (req, res) => {
     },
   });
   res.json({ ok: true });
+});
+
+router.put('/bybit-keys', authMiddleware, async (req, res) => {
+  const { apiKey, secret } = req.body;
+  if (!apiKey || !secret) {
+    return res.status(400).json({ error: 'apiKey and secret are required' });
+  }
+  await prisma.settings.update({
+    where: { id: 1 },
+    data: {
+      bybitApiKey: encrypt(apiKey),
+      bybitSecret: encrypt(secret),
+    },
+  });
+  res.json({ ok: true });
+});
+
+router.put('/exchange', authMiddleware, async (req, res) => {
+  const { exchange } = req.body;
+  if (!['binance', 'bybit'].includes(exchange)) {
+    return res.status(400).json({ error: 'exchange must be "binance" or "bybit"' });
+  }
+
+  await prisma.settings.update({ where: { id: 1 }, data: { exchange } });
+
+  // Invalidate exchange adapter cache
+  invalidateExchangeCache();
+
+  // Swap active trading pairs:
+  // deactivate all current pairs, activate/create target exchange pairs
+  const targetPairs = exchange === 'bybit' ? BYBIT_PAIRS : BINANCE_PAIRS;
+
+  // Deactivate all currently active pairs
+  await prisma.tradingPair.updateMany({
+    where: { isActive: true },
+    data: { isActive: false },
+  });
+
+  // Activate or create pairs for the target exchange
+  for (const p of targetPairs) {
+    const existing = await prisma.tradingPair.findFirst({
+      where: { monitorSymbol: p.monitor },
+    });
+    if (existing) {
+      await prisma.tradingPair.update({
+        where: { id: existing.id },
+        data: { isActive: true, tradeSymbol: p.trade },
+      });
+    } else {
+      await prisma.tradingPair.create({
+        data: { monitorSymbol: p.monitor, tradeSymbol: p.trade, isActive: true },
+      });
+    }
+  }
+
+  res.json({ ok: true, exchange, note: 'Trading pairs swapped. Restart server to apply WebSocket changes.' });
 });
 
 router.put('/telegram', authMiddleware, async (req, res) => {

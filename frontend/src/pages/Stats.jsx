@@ -67,6 +67,7 @@ export default function Stats() {
   const [snapshots, setSnapshots] = useState([]);
   const [backtest, setBacktest] = useState(null);
   const [btRunning, setBtRunning] = useState(false);
+  const [btError, setBtError] = useState(null);
   const [activeTab, setActiveTab] = useState('stats');
 
   // Backtest form state
@@ -93,12 +94,14 @@ export default function Stats() {
     if (!btPairId) return;
     setBtRunning(true);
     setBacktest(null);
+    setBtError(null);
     try {
       const { data } = await api.get('/stats/backtest', {
         params: { pairId: btPairId, from: btFrom, to: btTo + 'T23:59:59Z', threshold: btThreshold, slPct: btSl, tpPct: btTp },
       });
       setBacktest(data);
-    } catch {
+    } catch (err) {
+      setBtError(err.response?.data?.error || 'Ошибка при запуске бэктеста');
     } finally {
       setBtRunning(false);
     }
@@ -341,6 +344,13 @@ export default function Stats() {
               {btRunning ? 'Запуск...' : 'Запустить бэктест'}
             </button>
           </div>
+
+          {/* Backtest error */}
+          {btError && (
+            <div className="bg-red-900/20 border border-red-700 rounded-xl p-3 text-sm text-red-400">
+              {btError}
+            </div>
+          )}
 
           {/* Backtest results */}
           {backtest && (

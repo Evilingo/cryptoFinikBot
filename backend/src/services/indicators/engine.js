@@ -3,7 +3,7 @@ import { logger } from '../../config/logger.js';
 import { analyzeSignal } from '../claude/orchestrator.js';
 import { sendTelegramNotification, formatSignalMessage } from '../notifications/notifier.js';
 import { broadcast } from '../../ws/hub.js';
-import { getKlines, getMidPrice, placeOrder, getAccountBalance } from '../binance/rest.js';
+import { getKlines, getMidPrice, placeOrder, getAccountBalance } from '../exchange/index.js';
 
 // In-memory store: symbol -> { current, previous, history[] }
 const obdState = new Map();
@@ -231,8 +231,8 @@ async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
       const balances = await getAccountBalance();
       const asset = pair.tradeSymbol.replace('USDT', '').replace('USDC', '').replace('BUSD', '');
       const bal = balances.find((b) => b.asset === asset);
-      const free = parseFloat(bal?.free || '0');
-      if (free < quantity) {
+      const free = parseFloat(bal?.free ?? '0');
+      if (isNaN(free) || free < quantity) {
         logger.info('Auto-trade SHORT skipped: insufficient balance', { asset, required: quantity.toFixed(6), available: free.toFixed(6) });
         sendTelegramNotification(
           `⚠️ SHORT пропущен: недостаточно ${asset}\nНужно: ${quantity.toFixed(6)}, доступно: ${free.toFixed(6)}`,

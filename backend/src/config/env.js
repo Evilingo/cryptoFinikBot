@@ -33,4 +33,5 @@ export const env = {
   get devSkipAuth() { return process.env.DEV_SKIP_AUTH === 'true'; },
   get telegramToken() { return process.env.TELEGRAM_TOKEN || ''; },
   get telegramChatId() { return process.env.TELEGRAM_CHAT_ID || ''; },
+  get exchange() { return process.env.EXCHANGE || 'binance'; },
 };

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
-import { getAccountBalance } from '../services/binance/rest.js';
+import { getAccountBalance } from '../services/exchange/index.js';
 
 const router = Router();
 
