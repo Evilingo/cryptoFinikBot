@@ -2,8 +2,9 @@ import crypto from 'node:crypto';
 import { prisma } from '../../db/prisma.js';
 import { decrypt } from '../../config/crypto.js';
 import { logger } from '../../config/logger.js';
+import { env } from '../../config/env.js';
 
-const BASE_URL = 'https://api.bybit.com';
+const BASE_URL = env.bybitTestnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
 const RECV_WINDOW = '5000';
 
 async function getKeys() {

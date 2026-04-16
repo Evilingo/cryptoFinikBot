@@ -17,8 +17,11 @@ import { processObdUpdate } from '../indicators/engine.js';
 import { trackSignalOutcomes } from '../signals/tracker.js';
 import { broadcast } from '../../ws/hub.js';
 import { buildHeatmap } from '../binance/orderbook.js';
+import { env } from '../../config/env.js';
 
-const BYBIT_STREAM = 'wss://stream.bybit.com/v5/public/spot';
+const BYBIT_STREAM = env.bybitTestnet
+  ? 'wss://stream-testnet.bybit.com/v5/public/spot'
+  : 'wss://stream.bybit.com/v5/public/spot';
 const PING_INTERVAL = 20_000;
 
 // Bybit spot max OB depth is 200 levels

@@ -61,6 +61,7 @@ npm run build
 | `REDIS_URL` | optional | Not currently used |
 | `DEV_SKIP_AUTH` | dev only | `true` → /auth/refresh returns token without credentials |
 | `BINANCE_TESTNET` | dev only | `true` → use testnet.binance.vision instead of api.binance.com |
+| `BYBIT_TESTNET` | dev only | `true` → use api-testnet.bybit.com and stream-testnet.bybit.com instead of production |
 | `SKIP_CLAUDE_ANALYSIS` | dev only | `true` → skip Claude, confirm signal with confidence=80 (for testing Telegram + auto-trade) |
 
 ## Architecture

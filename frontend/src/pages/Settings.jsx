@@ -70,7 +70,7 @@ export default function Settings() {
     try {
       await api.put('/settings/exchange', { exchange: value });
       setExchange(value);
-      toast.success(`Exchange switched to ${value}. Restart server to apply WebSocket changes.`);
+      toast.success(`Биржа переключена на ${value}`);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Save failed');
     }
@@ -143,9 +143,6 @@ export default function Settings() {
       {/* Exchange Selector */}
       <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
         <h2 className="text-lg font-semibold mb-3">Exchange</h2>
-        <p className="text-xs text-gray-500 mb-4">
-          После смены биржи нужно перезапустить сервер (Railway redeploy) чтобы переключились WebSocket соединения.
-        </p>
         <div className="flex gap-3">
           {['binance', 'bybit'].map((ex) => (
             <button

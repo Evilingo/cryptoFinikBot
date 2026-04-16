@@ -9,13 +9,8 @@ import { validateEnv, env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { prisma } from './db/prisma.js';
 import { initWebSocketHub } from './ws/hub.js';
-import { startOrderBookPolling, stopOrderBookPolling } from './services/binance/orderbook.js';
-import { startOrderBookWs, stopOrderBookWs } from './services/binance/orderBookWs.js';
-import { startBinanceWs, stopBinanceWs } from './services/binance/websocket.js';
-import { startUserDataStream, stopUserDataStream } from './services/binance/userDataStream.js';
-import { startBybitOrderBookWs, stopBybitOrderBookWs } from './services/bybit/orderBookWs.js';
-import { startBybitWs, stopBybitWs } from './services/bybit/websocket.js';
-import { startBybitUserDataStream, stopBybitUserDataStream } from './services/bybit/userDataStream.js';
+import { stopOrderBookPolling } from './services/binance/orderbook.js';
+import { initExchangeWs, stopAllExchangeWs } from './services/exchange/wsManager.js';
 
 import { DEFAULT_PROMPT } from './services/claude/prompts.js';
 import authRoutes from './routes/auth.js';
@@ -142,21 +137,7 @@ server.listen(env.port, async () => {
     logger.warn('Failed to read exchange setting, defaulting to binance', { error: err.message });
   }
 
-  if (exchange === 'bybit') {
-    logger.info('Starting Bybit WebSocket services');
-    startBybitOrderBookWs();
-    startBybitWs();
-    startBybitUserDataStream().catch((err) =>
-      logger.warn('Bybit User Data Stream start failed', { error: err.message })
-    );
-  } else {
-    logger.info('Starting Binance WebSocket services');
-    startOrderBookWs(); // WebSocket-based, replaces REST polling (no rate limit risk)
-    startBinanceWs();
-    startUserDataStream().catch((err) =>
-      logger.warn('User Data Stream start failed', { error: err.message })
-    );
-  }
+  await initExchangeWs(exchange);
 
   // Register Telegram webhook (non-blocking)
   const publicUrl = process.env.RAILWAY_PUBLIC_DOMAIN
@@ -170,14 +151,8 @@ server.listen(env.port, async () => {
 // Graceful shutdown
 async function shutdown(signal) {
   logger.info(`${signal} received, shutting down...`);
-  // Stop both exchange WS sets — whichever is running will shut down cleanly
   stopOrderBookPolling(); // kept for graceful shutdown compatibility
-  stopOrderBookWs();
-  stopBinanceWs();
-  stopUserDataStream();
-  stopBybitOrderBookWs();
-  stopBybitWs();
-  stopBybitUserDataStream();
+  stopAllExchangeWs();
   server.close();
   await prisma.$disconnect();
   process.exit(0);

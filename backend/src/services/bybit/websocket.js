@@ -2,8 +2,11 @@ import WebSocket from 'ws';
 import { broadcast } from '../../ws/hub.js';
 import { logger } from '../../config/logger.js';
 import { prisma } from '../../db/prisma.js';
+import { env } from '../../config/env.js';
 
-const BYBIT_STREAM = 'wss://stream.bybit.com/v5/public/spot';
+const BYBIT_STREAM = env.bybitTestnet
+  ? 'wss://stream-testnet.bybit.com/v5/public/spot'
+  : 'wss://stream.bybit.com/v5/public/spot';
 const PING_INTERVAL = 20_000;
 
 const INTERVAL_MAP = {

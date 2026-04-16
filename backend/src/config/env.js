@@ -34,4 +34,5 @@ export const env = {
   get telegramToken() { return process.env.TELEGRAM_TOKEN || ''; },
   get telegramChatId() { return process.env.TELEGRAM_CHAT_ID || ''; },
   get exchange() { return process.env.EXCHANGE || 'binance'; },
+  get bybitTestnet() { return process.env.BYBIT_TESTNET === 'true'; },
 };

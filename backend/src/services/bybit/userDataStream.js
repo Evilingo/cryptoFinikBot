@@ -11,8 +11,11 @@ import { logger } from '../../config/logger.js';
 import { decrypt } from '../../config/crypto.js';
 import { sendTelegramNotification } from '../notifications/notifier.js';
 import { broadcast } from '../../ws/hub.js';
+import { env } from '../../config/env.js';
 
-const BYBIT_PRIVATE_WS = 'wss://stream.bybit.com/v5/private';
+const BYBIT_PRIVATE_WS = env.bybitTestnet
+  ? 'wss://stream-testnet.bybit.com/v5/private'
+  : 'wss://stream.bybit.com/v5/private';
 const PING_INTERVAL = 20_000;
 
 let ws = null;

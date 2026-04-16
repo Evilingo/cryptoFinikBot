@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { prisma } from '../db/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { encrypt } from '../config/crypto.js';
+import { logger } from '../config/logger.js';
 import { BINANCE_PAIRS, BYBIT_PAIRS } from '../config/pairs.js';
 import { invalidateExchangeCache } from '../services/exchange/index.js';
+import { switchExchangeWs } from '../services/exchange/wsManager.js';
 
 const router = Router();
 
@@ -75,20 +77,17 @@ router.put('/exchange', authMiddleware, async (req, res) => {
 
   await prisma.settings.update({ where: { id: 1 }, data: { exchange } });
 
-  // Invalidate exchange adapter cache
+  // Invalidate exchange adapter cache (REST calls)
   invalidateExchangeCache();
 
-  // Swap active trading pairs:
-  // deactivate all current pairs, activate/create target exchange pairs
+  // Swap active trading pairs
   const targetPairs = exchange === 'bybit' ? BYBIT_PAIRS : BINANCE_PAIRS;
 
-  // Deactivate all currently active pairs
   await prisma.tradingPair.updateMany({
     where: { isActive: true },
     data: { isActive: false },
   });
 
-  // Activate or create pairs for the target exchange
   for (const p of targetPairs) {
     const existing = await prisma.tradingPair.findFirst({
       where: { monitorSymbol: p.monitor },
@@ -105,7 +104,12 @@ router.put('/exchange', authMiddleware, async (req, res) => {
     }
   }
 
-  res.json({ ok: true, exchange, note: 'Trading pairs swapped. Restart server to apply WebSocket changes.' });
+  // Hot-switch WebSocket services (non-blocking — runs in background)
+  switchExchangeWs(exchange).catch((err) =>
+    logger.error('Exchange WS switch failed', { error: err.message })
+  );
+
+  res.json({ ok: true, exchange });
 });
 
 router.put('/telegram', authMiddleware, async (req, res) => {
