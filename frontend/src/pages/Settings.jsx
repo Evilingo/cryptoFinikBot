@@ -77,7 +77,7 @@ export default function Settings() {
       // Auto-test connection after saving
       setBybitStatus({ ok: null, msg: 'Testing connection…' });
       try {
-        const { data } = await api.get('/balance');
+        const { data } = await api.get('/balance/test-bybit');
         if (!Array.isArray(data) || data.length === 0) {
           setBybitStatus({ ok: true, msg: 'Keys saved · Connected (no assets found)' });
         } else {
@@ -144,16 +144,18 @@ export default function Settings() {
 
   const testConnection = async () => {
     setBalanceResult(null);
+    setBybitStatus({ ok: null, msg: 'Testing connection…' });
     try {
-      const { data } = await api.get('/balance');
-      if (!data.length) {
-        setBalanceResult({ ok: true, text: 'Connected. Balance empty (no assets).' });
+      const { data } = await api.get('/balance/test-bybit');
+      if (!Array.isArray(data) || data.length === 0) {
+        setBybitStatus({ ok: true, msg: 'Connected · No assets found (check account type or IP whitelist)' });
       } else {
-        const lines = data.map(b => `${b.asset}: ${parseFloat(b.free).toFixed(4)}`).join('  |  ');
-        setBalanceResult({ ok: true, text: `Connected. ${lines}` });
+        const lines = data.map(b => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
+        setBybitStatus({ ok: true, msg: `Connected · ${lines}` });
       }
+      setTimeout(() => setBybitStatus(null), 8000);
     } catch (err) {
-      setBalanceResult({ ok: false, text: err.response?.data?.error || err.message });
+      setBybitStatus({ ok: false, msg: err.response?.data?.error || err.message });
     }
   };
 
