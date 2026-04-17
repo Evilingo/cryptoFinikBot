@@ -66,13 +66,12 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
       api.get(`/klines?symbol=${p.monitorSymbol}&interval=1m&limit=60`)
         .then(({ data }) => {
           if (Array.isArray(data) && data.length) {
-            const candles = data.map(k => ({
-              t: parseInt(k[0]),
-              o: parseFloat(k[1]),
-              h: parseFloat(k[2]),
-              l: parseFloat(k[3]),
-              c: parseFloat(k[4]),
-            }));
+            // Handle both Binance array format [time, o, h, l, c, ...]
+            // and Bybit object format { t, o, h, l, c }
+            const candles = data.map(k => Array.isArray(k)
+              ? { t: parseInt(k[0]), o: parseFloat(k[1]), h: parseFloat(k[2]), l: parseFloat(k[3]), c: parseFloat(k[4]) }
+              : { t: k.t, o: k.o, h: k.h, l: k.l, c: k.c }
+            ).filter(k => !isNaN(k.o));
             candlesRef.current[p.monitorSymbol] = candles.map(({ o, h, l, c }) => ({ o, h, l, c }));
             klineTimeRef.current[p.monitorSymbol] = candles[candles.length - 1]?.t ?? 0;
             // Compute 1h delta
@@ -173,7 +172,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
     setQuantity(qty.toFixed(6));
   };
 
-  const balanceAssets = ['USDT', 'USDC', 'BTC', 'ETH'];
+  const balanceAssets = ['USDT', 'BTC', 'ETH', 'SOL'];
   const balanceStrip = balanceAssets.map(asset => ({
     asset,
     free: parseFloat(balances.find(b => b.asset === asset)?.free ?? 0),
@@ -219,9 +218,9 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
           <div key={b.asset} className="balance-cell">
             <div className="balance-label">{b.asset} balance</div>
             <div className="balance-value">
-              {b.asset === 'BTC' || b.asset === 'ETH'
-                ? formatPrice(b.free, 4)
-                : formatPrice(b.free, 2)}
+              {b.asset === 'USDT'
+                ? formatPrice(b.free, 2)
+                : formatPrice(b.free, 4)}
             </div>
           </div>
         ))}

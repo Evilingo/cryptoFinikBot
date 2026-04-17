@@ -107,10 +107,10 @@ export async function getAccountBalance() {
 
   const coins = data.result?.list?.[0]?.coin || [];
   return coins
-    .filter((c) => parseFloat(c.availableToWithdraw || 0) > 0 || parseFloat(c.locked || 0) > 0)
+    .filter((c) => parseFloat(c.walletBalance || c.availableToWithdraw || 0) > 0)
     .map((c) => ({
       asset: c.coin,
-      free: c.availableToWithdraw || '0',
+      free: c.walletBalance || c.availableToWithdraw || '0',
       locked: c.locked || '0',
     }));
 }
