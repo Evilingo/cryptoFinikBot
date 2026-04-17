@@ -107,11 +107,11 @@ export function Toggle({ on, onChange }) {
   return <div className={`toggle ${on ? 'on' : ''}`} onClick={() => onChange(!on)} />;
 }
 
-export function ConnIndicator({ connected = true }) {
+export function ConnIndicator({ connected = true, exchange = 'Binance' }) {
   return (
     <span className="conn-indicator">
       <span className="d" style={!connected ? { background: 'var(--short)' } : {}} />
-      {connected ? 'Binance ws · live' : 'Disconnected'}
+      {connected ? `${exchange} ws · live` : 'Disconnected'}
     </span>
   );
 }

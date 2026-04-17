@@ -23,6 +23,7 @@ export default function Settings() {
   const [enableShort, setEnableShort] = useState(true);
   const [balanceResult, setBalanceResult] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
+  const [bybitStatus, setBybitStatus] = useState(null); // inline status for Bybit section
 
   useEffect(() => {
     api.get('/settings').then(({ data }) => {
@@ -65,13 +66,30 @@ export default function Settings() {
   };
 
   const saveBybitKeys = async () => {
-    if (!bybitApiKey || !bybitSecret) return showStatus(false, 'Both API Key and Secret required');
+    if (!bybitApiKey || !bybitSecret) {
+      setBybitStatus({ ok: false, msg: 'Both API Key and Secret required' });
+      return;
+    }
+    setBybitStatus({ ok: null, msg: 'Saving…' });
     try {
       await api.put('/settings/bybit-keys', { apiKey: bybitApiKey, secret: bybitSecret });
-      showStatus(true, 'Bybit keys saved');
       setBybitApiKey(''); setBybitSecret('');
+      // Auto-test connection after saving
+      setBybitStatus({ ok: null, msg: 'Testing connection…' });
+      try {
+        const { data } = await api.get('/balance');
+        if (!Array.isArray(data) || data.length === 0) {
+          setBybitStatus({ ok: true, msg: 'Keys saved · Connected (no assets found)' });
+        } else {
+          const lines = data.map(b => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
+          setBybitStatus({ ok: true, msg: `Keys saved · ${lines}` });
+        }
+      } catch {
+        setBybitStatus({ ok: true, msg: 'Keys saved · Balance test failed (check IP whitelist or key permissions)' });
+      }
+      setTimeout(() => setBybitStatus(null), 8000);
     } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
+      setBybitStatus({ ok: false, msg: err.response?.data?.error || 'Save failed' });
     }
   };
 
@@ -332,7 +350,22 @@ export default function Settings() {
                   <button className="btn btn-primary" onClick={saveBybitKeys}>Save Bybit keys</button>
                   <button className="btn btn-ghost" onClick={testConnection}>Test connection</button>
                 </div>
-                {balanceResult && (
+                {bybitStatus && (
+                  <div style={{
+                    marginTop: 10, fontSize: 13, padding: '8px 12px',
+                    borderRadius: 'var(--radius)',
+                    color: bybitStatus.ok === true ? 'var(--long)' : bybitStatus.ok === false ? 'var(--short)' : 'var(--text-2)',
+                    background: bybitStatus.ok === true
+                      ? 'color-mix(in srgb, var(--long) 10%, transparent)'
+                      : bybitStatus.ok === false
+                      ? 'color-mix(in srgb, var(--short) 10%, transparent)'
+                      : 'var(--bg-2)',
+                    border: '1px solid var(--line)',
+                  }}>
+                    {bybitStatus.msg}
+                  </div>
+                )}
+                {!bybitStatus && balanceResult && (
                   <div style={{marginTop: 10, fontSize: 13, color: balanceResult.ok ? 'var(--long)' : 'var(--short)'}}>
                     {balanceResult.ok ? '✓' : '✗'} {balanceResult.text}
                   </div>

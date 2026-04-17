@@ -58,8 +58,13 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
 
   useEffect(() => {
     api.get('/pairs').then(({ data }) => setPairs(data)).catch(() => {});
-    api.get('/balance').then(({ data }) => setBalances(data)).catch(() => {});
+    api.get('/balance').then(({ data }) => setBalances(Array.isArray(data) ? data : [])).catch(() => {});
     api.get('/trade').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {});
+
+    // Refresh balance every 60s so it updates after key changes without reload
+    const balInterval = setInterval(() => {
+      api.get('/balance').then(({ data }) => setBalances(Array.isArray(data) ? data : [])).catch(() => {});
+    }, 60000);
 
     // Fetch real klines for each pair
     PAIRS_CONFIG.forEach(p => {
@@ -90,7 +95,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
     const posInterval = setInterval(() => {
       api.get('/trade').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {});
     }, 5000);
-    return () => clearInterval(posInterval);
+    return () => { clearInterval(posInterval); clearInterval(balInterval); };
   }, []);
 
   const onWsMessage = useCallback((msg) => {
@@ -204,7 +209,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
           <p>4 pairs monitored · OBD engine live</p>
         </div>
         <div className="topbar-actions">
-          <ConnIndicator connected={connected}/>
+          <ConnIndicator connected={connected} exchange={allPairs[0]?.monitorSymbol?.endsWith('USDT') ? 'Bybit' : 'Binance'}/>
           <div className="seg">
             <button className={viewMode === 'grid' ? 'active' : ''} onClick={() => setViewMode('grid')}>2×2</button>
             <button className={viewMode === 'single' ? 'active' : ''} onClick={() => setViewMode('single')}>Focus</button>
