@@ -78,16 +78,27 @@ export default function Settings() {
       setBybitStatus({ ok: null, msg: 'Testing connection…' });
       try {
         const { data } = await api.get('/balance/test-bybit');
-        if (!Array.isArray(data) || data.length === 0) {
-          setBybitStatus({ ok: true, msg: 'Keys saved · Connected (no assets found)' });
-        } else {
-          const lines = data.map(b => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
-          setBybitStatus({ ok: true, msg: `Keys saved · ${lines}` });
+        const balances = data.balances || [];
+        const perms = data.permissions;
+
+        let permLine = '';
+        if (perms && !perms.error) {
+          if (perms.readOnly) permLine = ' · ⚠ Read-only key — trading disabled';
+          else if (perms.canTrade) permLine = ' · Trade ✓';
+          else permLine = ' · ⚠ No SpotTrade permission — orders will fail';
         }
-      } catch {
-        setBybitStatus({ ok: true, msg: 'Keys saved · Balance test failed (check IP whitelist or key permissions)' });
+
+        const balLine = balances.length === 0
+          ? 'No assets found'
+          : balances.map(b => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
+
+        const ok = perms?.canTrade ? true : null;
+        setBybitStatus({ ok, msg: `Keys saved · ${balLine}${permLine}` });
+      } catch (err) {
+        const reason = err.response?.data?.error || err.message || 'unknown error';
+        setBybitStatus({ ok: false, msg: `Keys saved · Connection failed: ${reason}` });
       }
-      setTimeout(() => setBybitStatus(null), 8000);
+      setTimeout(() => setBybitStatus(null), 12000);
     } catch (err) {
       setBybitStatus({ ok: false, msg: err.response?.data?.error || 'Save failed' });
     }
