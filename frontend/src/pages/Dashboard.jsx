@@ -10,7 +10,22 @@ const PAIRS_CONFIG = [
   { monitorSymbol: 'ETHUSDC', tradeSymbol: 'ETHUSDT', base: 'ETH', basePrice: 3500 },
   { monitorSymbol: 'SOLUSDC', tradeSymbol: 'SOLUSDT', base: 'SOL', basePrice: 180 },
   { monitorSymbol: 'BNBUSDC', tradeSymbol: 'BNBUSDT', base: 'BNB', basePrice: 420 },
+  // Bybit pairs (USDT monitor)
+  { monitorSymbol: 'BTCUSDT', tradeSymbol: 'BTCUSDT', base: 'BTC', basePrice: 65000 },
+  { monitorSymbol: 'ETHUSDT', tradeSymbol: 'ETHUSDT', base: 'ETH', basePrice: 3500 },
+  { monitorSymbol: 'SOLUSDT', tradeSymbol: 'SOLUSDT', base: 'SOL', basePrice: 180 },
+  { monitorSymbol: 'BNBUSDT', tradeSymbol: 'BNBUSDT', base: 'BNB', basePrice: 420 },
 ];
+
+// Derive base ticker from monitor symbol (handles both USDC and USDT)
+function toBase(sym) {
+  return sym?.replace(/USDC$|USDT$/, '') || sym || '';
+}
+
+// Initialize placeholder candle data synchronously so first render shows charts
+const INIT_CANDLES = Object.fromEntries(
+  PAIRS_CONFIG.map(p => [p.monitorSymbol, genCandles(p.basePrice, 60)])
+);
 
 export default function Dashboard({ onOpenSignal, onNewSignal }) {
   const [pairs, setPairs] = useState([]);
@@ -22,28 +37,22 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
   const [slPct, setSlPct] = useState('1.5');
   const [tpPct, setTpPct] = useState('3.0');
   const [selectedPairIdx, setSelectedPairIdx] = useState(0);
-  const [tradeStatus, setTradeStatus] = useState(null); // {ok, msg}
+  const [tradeStatus, setTradeStatus] = useState(null);
+  // chartTick triggers re-render when candle data changes
+  const [chartTick, setChartTick] = useState(0);
 
   const obdRef = useRef({});
   const [obdData, setObdData] = useState({});
-  const candlesRef = useRef({});
-  const deltaRef = useRef({}); // symbol → 1h % change
+  // Initialize synchronously so charts render on first paint
+  const candlesRef = useRef({ ...INIT_CANDLES });
+  const deltaRef = useRef({});
   const [deltaData, setDeltaData] = useState({});
-  const klineTimeRef = useRef({}); // symbol → last kline open time
+  const klineTimeRef = useRef({});
 
   const showTradeStatus = (ok, msg) => {
     setTradeStatus({ ok, msg });
     setTimeout(() => setTradeStatus(null), 3000);
   };
-
-  // Initialize candles with placeholder data
-  useEffect(() => {
-    PAIRS_CONFIG.forEach(p => {
-      if (!candlesRef.current[p.monitorSymbol]) {
-        candlesRef.current[p.monitorSymbol] = genCandles(p.basePrice, 60);
-      }
-    });
-  }, []);
 
   const playAlert = useAlertSound();
 
@@ -52,7 +61,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
     api.get('/balance').then(({ data }) => setBalances(data)).catch(() => {});
     api.get('/trade').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {});
 
-    // Fetch klines for each pair and compute 1h delta
+    // Fetch real klines for each pair
     PAIRS_CONFIG.forEach(p => {
       api.get(`/klines?symbol=${p.monitorSymbol}&interval=1m&limit=60`)
         .then(({ data }) => {
@@ -65,21 +74,20 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
               c: parseFloat(k[4]),
             }));
             candlesRef.current[p.monitorSymbol] = candles.map(({ o, h, l, c }) => ({ o, h, l, c }));
-            // Track last kline open time
             klineTimeRef.current[p.monitorSymbol] = candles[candles.length - 1]?.t ?? 0;
-            // Compute 1h delta from first open to last close
+            // Compute 1h delta
             const firstOpen = candles[0]?.o;
             const lastClose = candles[candles.length - 1]?.c;
             if (firstOpen && lastClose) {
               deltaRef.current[p.monitorSymbol] = ((lastClose - firstOpen) / firstOpen) * 100;
               setDeltaData({ ...deltaRef.current });
             }
+            setChartTick(t => t + 1); // trigger re-render with real data
           }
         })
         .catch(() => {});
     });
 
-    // Poll positions every 5s
     const posInterval = setInterval(() => {
       api.get('/trade').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {});
     }, 5000);
@@ -107,13 +115,14 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
           l: parseFloat(k.l),
           c: parseFloat(k.c),
         };
-        // k.x === true means candle is closed — new minute started
         if (k.x && k.t !== klineTimeRef.current[sym]) {
+          // Candle closed — push new, drop oldest
           klineTimeRef.current[sym] = k.t;
           arr.push(newCandle);
           if (arr.length > 60) arr.shift();
+          setChartTick(t => t + 1); // re-render on minute close
         } else {
-          // Update the current (last) candle in-place
+          // Update current candle in-place
           const last = arr[arr.length - 1];
           if (last) {
             last.c = newCandle.c;
@@ -121,7 +130,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
             last.l = Math.min(last.l, newCandle.l);
           }
         }
-        // Update 1h delta based on live close
+        // Update 1h delta
         const firstOpen = arr[0]?.o;
         if (firstOpen) {
           deltaRef.current[sym] = ((newCandle.c - firstOpen) / firstOpen) * 100;
@@ -137,53 +146,43 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
 
   const { connected } = useWebSocket(onWsMessage);
 
-  // Determine display pairs
-  const allPairs = pairs.length > 0 ? pairs : PAIRS_CONFIG.map((p, i) => ({
+  // Determine display pairs — use DB pairs if loaded, fallback to config
+  const allPairs = pairs.length > 0 ? pairs : PAIRS_CONFIG.slice(0, 4).map((p, i) => ({
     id: i + 1,
     monitorSymbol: p.monitorSymbol,
     tradeSymbol: p.tradeSymbol,
-    base: p.base,
   }));
   const displayPairs = viewMode === 'grid' ? allPairs : [allPairs[selectedPairIdx] || allPairs[0]];
 
   const selPair = allPairs[selectedPairIdx] || allPairs[0];
   const selObd = selPair ? obdData[selPair.monitorSymbol] : null;
-  const currentPrice = selObd?.midPrice ?? PAIRS_CONFIG[selectedPairIdx]?.basePrice ?? 0;
+  const selCfg = PAIRS_CONFIG.find(p => p.monitorSymbol === selPair?.monitorSymbol);
+  const currentPrice = selObd?.midPrice ?? selCfg?.basePrice ?? 0;
   const slPrice = currentPrice * (side === 'BUY' ? (1 - parseFloat(slPct) / 100) : (1 + parseFloat(slPct) / 100));
   const tpPrice = currentPrice * (side === 'BUY' ? (1 + parseFloat(tpPct) / 100) : (1 - parseFloat(tpPct) / 100));
 
-  // Compute available balance for selected pair
-  const selBase = selPair?.base || selPair?.monitorSymbol?.replace(/USDC$/, '') || 'BTC';
+  const selBase = toBase(selPair?.monitorSymbol);
   const usdtBalance = parseFloat(balances.find(b => b.asset === 'USDT')?.free ?? 0);
   const baseBalance = parseFloat(balances.find(b => b.asset === selBase)?.free ?? 0);
 
   const applyQuickAmount = (pct) => {
     const fraction = pct === 100 ? 1 : pct / 100;
-    let qty;
-    if (side === 'BUY') {
-      // BUY: spend USDT
-      qty = currentPrice > 0 ? (usdtBalance * fraction) / currentPrice : 0;
-    } else {
-      // SELL: spend base asset
-      qty = baseBalance * fraction;
-    }
+    const qty = side === 'BUY'
+      ? (currentPrice > 0 ? (usdtBalance * fraction) / currentPrice : 0)
+      : (baseBalance * fraction);
     setQuantity(qty.toFixed(6));
   };
 
-  // Balance strip: USDT, USDC, BTC, ETH
   const balanceAssets = ['USDT', 'USDC', 'BTC', 'ETH'];
-  const balanceStrip = balanceAssets.map(asset => {
-    const found = balances.find(b => b.asset === asset);
-    return { asset, free: found ? parseFloat(found.free) : 0 };
-  });
+  const balanceStrip = balanceAssets.map(asset => ({
+    asset,
+    free: parseFloat(balances.find(b => b.asset === asset)?.free ?? 0),
+  }));
 
   const handleTradeSubmit = async () => {
     if (!selPair) return;
     const qty = parseFloat(quantity);
-    if (isNaN(qty) || qty <= 0) {
-      showTradeStatus(false, 'Invalid quantity');
-      return;
-    }
+    if (isNaN(qty) || qty <= 0) { showTradeStatus(false, 'Invalid quantity'); return; }
     try {
       await api.post('/trade/order', {
         symbol: selPair.tradeSymbol,
@@ -236,25 +235,24 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
             const cfg = PAIRS_CONFIG.find(p => p.monitorSymbol === pair.monitorSymbol);
             const price = obd?.midPrice ?? cfg?.basePrice ?? 0;
             const delta1h = deltaData[pair.monitorSymbol] ?? null;
+            // chartTick used as key on Sparkchart forces re-render when candles update
             const candles = candlesRef.current[pair.monitorSymbol] || [];
-            const base = pair.base || pair.monitorSymbol?.replace(/USDC$/, '');
+            const base = toBase(pair.monitorSymbol);
             return (
               <div
                 key={pair.id || idx}
                 className="pair-card"
-                onClick={() => {
-                  setSelectedPairIdx(allPairs.indexOf(pair));
-                  setViewMode('single');
-                }}
+                onClick={() => { setSelectedPairIdx(allPairs.indexOf(pair)); setViewMode('single'); }}
               >
                 <div className="pair-head">
                   <div className="pair-symbol">
                     <CoinGlyph symbol={base} size={26}/>
                     <div>
                       <div className="pair-name">
-                        <span>{base}</span><span className="quote">/USDC</span>
+                        <span>{base}</span>
+                        <span className="quote">/{pair.monitorSymbol?.endsWith('USDC') ? 'USDC' : 'USDT'}</span>
                       </div>
-                      <div style={{fontSize: 10, color: 'var(--text-3)'}}>Monitor · Binance spot</div>
+                      <div style={{fontSize: 10, color: 'var(--text-3)'}}>Monitor · {pair.monitorSymbol?.endsWith('USDC') ? 'Binance' : 'Bybit'} spot</div>
                     </div>
                   </div>
                   <div style={{textAlign: 'right'}}>
@@ -268,7 +266,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
                 </div>
                 <div className="pair-body">
                   <div className="pair-chart-wrap">
-                    <Sparkchart candles={candles}/>
+                    <Sparkchart key={`${pair.monitorSymbol}-${chartTick}`} candles={candles}/>
                   </div>
                   <div className="pair-obd-wrap">
                     {[1, 2, 3, 4].map(i => {
@@ -300,7 +298,6 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
 
         {/* Right panel */}
         <div className="dash-right">
-          {/* Quick Trade */}
           <div className="card">
             <div className="card-header">
               <div>
@@ -309,7 +306,6 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
               </div>
             </div>
             <div className="trade-panel">
-              {/* Pair selector */}
               <div className="trade-pair-select">
                 <CoinGlyph symbol={selBase} size={28}/>
                 <div style={{flex: 1}}>
@@ -322,9 +318,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
                   style={{background: 'transparent', border: 'none', color: 'var(--text-2)', fontSize: 12, outline: 'none'}}
                 >
                   {allPairs.map((p, i) => (
-                    <option key={p.id || i} value={i}>
-                      {p.base || p.monitorSymbol?.replace(/USDC$/, '')}
-                    </option>
+                    <option key={p.id || i} value={i}>{toBase(p.monitorSymbol)}</option>
                   ))}
                 </select>
               </div>
@@ -360,26 +354,15 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
 
               <div className="trade-preview">
                 <div className="row"><span>Entry</span><span>${formatPrice(currentPrice)}</span></div>
-                <div className="row">
-                  <span>Stop loss</span>
-                  <span style={{color: 'var(--short)'}}>${formatPrice(slPrice)}</span>
-                </div>
-                <div className="row">
-                  <span>Take profit</span>
-                  <span style={{color: 'var(--long)'}}>${formatPrice(tpPrice)}</span>
-                </div>
-                <div className="row">
-                  <span>Risk / Reward</span>
-                  <span>1 : {(parseFloat(tpPct) / parseFloat(slPct || 1)).toFixed(2)}</span>
-                </div>
+                <div className="row"><span>Stop loss</span><span style={{color: 'var(--short)'}}>${formatPrice(slPrice)}</span></div>
+                <div className="row"><span>Take profit</span><span style={{color: 'var(--long)'}}>${formatPrice(tpPrice)}</span></div>
+                <div className="row"><span>Risk / Reward</span><span>1 : {(parseFloat(tpPct) / parseFloat(slPct || 1)).toFixed(2)}</span></div>
               </div>
 
               {tradeStatus && (
                 <div style={{
                   padding: '8px 12px', borderRadius: 'var(--radius)', fontSize: 12,
-                  background: tradeStatus.ok
-                    ? 'color-mix(in srgb, var(--long) 12%, transparent)'
-                    : 'color-mix(in srgb, var(--short) 12%, transparent)',
+                  background: tradeStatus.ok ? 'color-mix(in srgb, var(--long) 12%, transparent)' : 'color-mix(in srgb, var(--short) 12%, transparent)',
                   color: tradeStatus.ok ? 'var(--long)' : 'var(--short)',
                   border: `1px solid color-mix(in srgb, ${tradeStatus.ok ? 'var(--long)' : 'var(--short)'} 30%, transparent)`,
                 }}>
@@ -393,7 +376,6 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
             </div>
           </div>
 
-          {/* Open Positions */}
           <div className="card" style={{flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column'}}>
             <div className="card-header">
               <div>
@@ -405,7 +387,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
               {positions.map((p, i) => {
                 const pnl = parseFloat(p.pnl || 0);
                 const pnlPct = parseFloat(p.pnlPct || 0);
-                const base = (p.symbol || '').replace(/USDT$|USDC$/, '');
+                const base = toBase(p.symbol);
                 return (
                   <div key={p.id || i} className="position">
                     <div style={{display: 'flex', alignItems: 'center', gap: 10}}>

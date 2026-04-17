@@ -135,9 +135,8 @@ export default function Stats() {
           <h1>Performance</h1>
           <p>Signal statistics, backtest and analytics from accumulated OBD data</p>
         </div>
-        <div className="topbar-actions">
-          <button className="btn btn-ghost">Export CSV</button>
-        </div>
+        <div className="topbar-actions"/>
+
       </div>
 
       <div className="stats-tabs">
@@ -429,7 +428,7 @@ export default function Stats() {
                 <>
                   {backtest.stats.total < 50 && backtest.stats.total > 0 && (
                     <div style={{background: 'color-mix(in srgb, var(--warn) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--warn) 30%, transparent)', borderRadius: 'var(--radius)', padding: '12px 16px', fontSize: 13, color: 'var(--warn)'}}>
-                      Only {backtest.stats.total} signals found — not enough for statistically reliable conclusions. Recommend minimum 50 signals. Extend the period or lower the threshold.
+                      Only {backtest.stats.total} signals found — not enough for statistically reliable conclusions. Recommend minimum 50 signals. Extend the period or lower the threshold. Note: signal counts differ by direction because the 90-min cooldown is shared in BOTH mode but independent per direction.
                     </div>
                   )}
                   <div className="kpi-grid">

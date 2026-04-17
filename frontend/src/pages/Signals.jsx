@@ -9,7 +9,6 @@ export default function Signals({ onOpenSignal }) {
   const [expanded, setExpanded] = useState(null);
   const [filterDir, setFilterDir] = useState('ALL');
   const [filterOutcome, setFilterOutcome] = useState('ALL');
-  const [query, setQuery] = useState('');
   const limit = 50;
 
   useEffect(() => {
@@ -21,10 +20,10 @@ export default function Signals({ onOpenSignal }) {
       .catch(() => {});
   }, [page]);
 
-  // Normalize signal fields to match design expectations
+  // Normalize signal fields
   const signals = useMemo(() => rawSignals.map(s => ({
     ...s,
-    pair: s.pair?.monitorSymbol || s.monitorSymbol || s.pair || '',
+    pair: s.pair?.monitorSymbol || s.monitorSymbol || (typeof s.pair === 'string' ? s.pair : '') || '',
     analysis: s.claudeAnalysis || s.analysis || '',
     sl: s.suggestedSl || s.stopLoss || s.sl,
     tp: s.suggestedTp || s.takeProfit || s.tp,
@@ -38,9 +37,8 @@ export default function Signals({ onOpenSignal }) {
     if (filterDir !== 'ALL' && s.direction !== filterDir) return false;
     if (filterOutcome === 'PENDING' && s.outcome) return false;
     if (filterOutcome !== 'ALL' && filterOutcome !== 'PENDING' && s.outcome !== filterOutcome) return false;
-    if (query && !s.pair.toLowerCase().includes(query.toLowerCase())) return false;
     return true;
-  }), [signals, filterDir, filterOutcome, query]);
+  }), [signals, filterDir, filterOutcome]);
 
   const stats = useMemo(() => {
     const resolved = signals.filter(s => s.outcome && s.outcome !== 'BREAKEVEN');
@@ -61,7 +59,7 @@ export default function Signals({ onOpenSignal }) {
           <p>Signal history from OBD engine · confirmed by Claude</p>
         </div>
         <div className="topbar-actions">
-          <div style={{display: 'flex', alignItems: 'center', gap: 14, marginRight: 8}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: 14}}>
             <div style={{textAlign: 'right'}}>
               <div style={{fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em'}}>Winrate</div>
               <div className="mono" style={{fontSize: 16, fontWeight: 600, color: 'var(--long)'}}>{stats.winRate}%</div>
@@ -73,27 +71,17 @@ export default function Signals({ onOpenSignal }) {
               </div>
             </div>
           </div>
-          <button className="btn btn-ghost"><Icon name="filter" size={14}/>Export</button>
         </div>
       </div>
 
+      {/* Single unified filter bar */}
       <div className="filters-bar">
-        <div style={{display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)'}}>
-          <Icon name="search" size={14}/>
-          <input
-            className="filter-input"
-            placeholder="Search by pair..."
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            style={{border: 'none', background: 'transparent', padding: '6px 0'}}
-          />
-        </div>
-        <div style={{width: 1, height: 24, background: 'var(--line)'}}/>
         <div className="seg">
           {['ALL', 'LONG', 'SHORT', 'WAIT'].map(d => (
             <button key={d} className={filterDir === d ? 'active' : ''} onClick={() => setFilterDir(d)}>{d}</button>
           ))}
         </div>
+        <div style={{width: 1, height: 24, background: 'var(--line)'}}/>
         <div className="seg">
           {['ALL', 'WIN', 'LOSS', 'PENDING'].map(o => (
             <button key={o} className={filterOutcome === o ? 'active' : ''} onClick={() => setFilterOutcome(o)}>{o}</button>
@@ -172,16 +160,16 @@ export default function Signals({ onOpenSignal }) {
                               )}
                             </div>
                           </div>
-                          <div style={{width: 200, display: 'flex', flexDirection: 'column', gap: 8}}>
-                            {onOpenSignal && (
+                          {onOpenSignal && (
+                            <div style={{width: 200, display: 'flex', flexDirection: 'column', gap: 8}}>
                               <button
                                 className="btn btn-ghost"
                                 onClick={(e) => { e.stopPropagation(); onOpenSignal({ ...s, monitorSymbol: s.pair }); }}
                               >
                                 Open in modal
                               </button>
-                            )}
-                          </div>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
