@@ -20,6 +20,9 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
   });
 
   for (const signal of pendingSignals) {
+    // WAIT = no trade, no position to track
+    if (signal.direction === 'WAIT') continue;
+
     const age = Date.now() - new Date(signal.createdAt).getTime();
 
     // Обновляем max/min цену
@@ -112,7 +115,7 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
  * Статистика точности сигналов.
  */
 export async function getEnhancedStats(pairId = null, since = null) {
-  const where = { outcome: { not: null } };
+  const where = { outcome: { not: null }, direction: { not: 'WAIT' } };
   if (pairId) where.pairId = pairId;
   if (since) where.createdAt = { gte: since };
 
@@ -418,9 +421,16 @@ export async function runOptimize({ pairIds = null, from, to, directionFilter = 
 }
 
 export async function getSignalStats(pairId = null, since = null) {
-  const where = { outcome: { not: null } };
-  if (pairId) where.pairId = pairId;
-  if (since) where.createdAt = { gte: since };
+  const baseWhere = {};
+  if (pairId) baseWhere.pairId = pairId;
+  if (since) baseWhere.createdAt = { gte: since };
+
+  // Count WAIT signals separately — they are AI filter decisions, not trades
+  const waitTotal = await prisma.signal.count({
+    where: { ...baseWhere, direction: 'WAIT' },
+  });
+
+  const where = { ...baseWhere, outcome: { not: null }, direction: { not: 'WAIT' } };
 
   const signals = await prisma.signal.findMany({
     where,
@@ -461,13 +471,13 @@ export async function getSignalStats(pairId = null, since = null) {
     byPair[sym].avgPnl = Math.round((byPair[sym].totalPnl / byPair[sym].total) * 100) / 100;
   }
 
-  // Последние 20 результатов для графика
+  // Последние 20 результатов для графика — только LONG/SHORT
   const recent = await prisma.signal.findMany({
-    where: { outcome: { not: null } },
+    where: { outcome: { not: null }, direction: { not: 'WAIT' } },
     orderBy: { createdAt: 'desc' },
     take: 20,
     select: { id: true, outcome: true, outcomePnl: true, direction: true, createdAt: true, pair: { select: { monitorSymbol: true } } },
   });
 
-  return { total, wins, losses, breakeven, winRate, avgPnl, totalPnl: Math.round(totalPnl * 100) / 100, byPair, recent: recent.reverse() };
+  return { total, wins, losses, breakeven, winRate, avgPnl, totalPnl: Math.round(totalPnl * 100) / 100, byPair, recent: recent.reverse(), waitTotal };
 }

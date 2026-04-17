@@ -158,9 +158,12 @@ export default function Stats() {
             <>
               <div className="kpi-grid">
                 <div className="kpi">
-                  <div className="kpi-label">Total signals</div>
+                  <div className="kpi-label">Traded signals</div>
                   <div className="kpi-value">{stats.total}</div>
-                  <div className="kpi-sub">{stats.wins}W / {stats.losses}L</div>
+                  <div className="kpi-sub">
+                    {stats.wins}W / {stats.losses}L
+                    {stats.waitTotal > 0 && <span style={{color: 'var(--text-4)'}}> · {stats.waitTotal} skipped by AI</span>}
+                  </div>
                 </div>
                 <div className="kpi">
                   <div className="kpi-label">Win rate</div>
