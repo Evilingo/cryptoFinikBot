@@ -294,18 +294,15 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
                   <div className="pair-obd-wrap">
                     {[1, 2, 3, 4].map(i => {
                       const v = obd?.[`obd${i}`] ?? 0;
-                      const pct = Math.max(-40, Math.min(40, v));
-                      const pos = pct >= 0;
+                      const pos = v >= 0;
+                      const fillPct = Math.min(100, Math.abs(v));
                       return (
                         <div key={i} className="obd-row">
                           <span className="obd-label">OBD-{i}</span>
                           <div className="obd-bar">
                             <div
                               className={`obd-fill ${pos ? 'pos' : 'neg'}`}
-                              style={{
-                                left: pos ? '50%' : `${50 + pct * 1.25}%`,
-                                width: `${Math.abs(pct) * 1.25}%`,
-                              }}
+                              style={{ left: 0, width: `${fillPct}%` }}
                             />
                           </div>
                           <span className={`obd-val ${pos ? 'pos' : 'neg'}`}>{v.toFixed(1)}</span>

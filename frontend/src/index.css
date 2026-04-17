@@ -608,20 +608,12 @@ input, select, textarea { font-family: inherit; }
   position: relative;
   overflow: hidden;
 }
-.obd-row .obd-bar::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 0; bottom: 0;
-  width: 1px;
-  background: var(--text-4);
-}
 .obd-row .obd-fill {
   position: absolute;
   top: 0; bottom: 0;
-  background: var(--primary);
+  left: 0;
   border-radius: 2px;
-  transition: all 0.3s ease;
+  transition: width 0.3s ease;
 }
 .obd-fill.pos { background: var(--long); }
 .obd-fill.neg { background: var(--short); }
