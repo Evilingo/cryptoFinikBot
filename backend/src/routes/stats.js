@@ -40,7 +40,7 @@ router.get('/snapshots', authMiddleware, async (req, res) => {
 });
 
 router.get('/backtest', authMiddleware, async (req, res) => {
-  const { pairId, from, to, threshold, slPct, tpPct } = req.query;
+  const { pairId, from, to, threshold, slPct, tpPct, direction } = req.query;
   if (!pairId || !from || !to) {
     return res.status(400).json({ error: 'pairId, from, to are required' });
   }
@@ -64,6 +64,8 @@ router.get('/backtest', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'slPct and tpPct must be positive' });
   }
 
+  const directionFilter = direction === 'LONG' || direction === 'SHORT' ? direction : null;
+
   const result = await runBacktest({
     pairId: parseInt(pairId),
     from: fromDate,
@@ -71,12 +73,13 @@ router.get('/backtest', authMiddleware, async (req, res) => {
     threshold: parsedThreshold,
     slPct: parsedSl,
     tpPct: parsedTp,
+    directionFilter,
   });
   res.json(result);
 });
 
 router.get('/optimize', authMiddleware, async (req, res) => {
-  const { pairIds, from, to } = req.query;
+  const { pairIds, from, to, direction } = req.query;
   if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
 
   const fromDate = new Date(from);
@@ -90,7 +93,9 @@ router.get('/optimize', authMiddleware, async (req, res) => {
     ? pairIds.split(',').map(Number).filter(Boolean)
     : null;
 
-  const result = await runOptimize({ pairIds: parsedPairIds, from: fromDate, to: toDate });
+  const directionFilter = direction === 'LONG' || direction === 'SHORT' ? direction : null;
+
+  const result = await runOptimize({ pairIds: parsedPairIds, from: fromDate, to: toDate, directionFilter });
   res.json(result);
 });
 

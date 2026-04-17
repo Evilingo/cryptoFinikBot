@@ -1,12 +1,61 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 
-function StatCard({ label, value, sub, color = 'text-white' }) {
+function Tooltip({ text }) {
+  return (
+    <span className="relative group inline-flex items-center">
+      <span className="ml-1 w-3.5 h-3.5 rounded-full bg-dark-600 text-gray-500 text-[10px] inline-flex items-center justify-center cursor-help hover:text-gray-300 hover:bg-dark-500 transition-colors font-bold select-none">?</span>
+      <span className="pointer-events-none absolute bottom-5 left-1/2 -translate-x-1/2 w-56 bg-dark-900 border border-dark-500 text-gray-200 text-xs rounded-lg px-3 py-2 z-50 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-normal leading-relaxed">
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function StatCard({ label, value, sub, color = 'text-white', tooltip }) {
   return (
     <div className="bg-dark-800 rounded-xl border border-dark-600 p-4">
-      <div className="text-xs text-gray-500 mb-1">{label}</div>
+      <div className="flex items-center text-xs text-gray-500 mb-1">
+        {label}
+        {tooltip && <Tooltip text={tooltip} />}
+      </div>
       <div className={`text-2xl font-bold ${color}`}>{value}</div>
       {sub && <div className="text-xs text-gray-500 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function FieldLabel({ children, tip }) {
+  return (
+    <label className="flex items-center text-xs text-gray-400 mb-1">
+      {children}
+      {tip && <Tooltip text={tip} />}
+    </label>
+  );
+}
+
+function DirectionToggle({ value, onChange }) {
+  return (
+    <div className="flex gap-1">
+      {[
+        { id: 'BOTH',  label: 'Оба' },
+        { id: 'LONG',  label: 'LONG' },
+        { id: 'SHORT', label: 'SHORT' },
+      ].map(({ id, label }) => (
+        <button
+          key={id}
+          onClick={() => onChange(id)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+            value === id
+              ? id === 'LONG'  ? 'bg-green-500/20 text-accent-green border-green-500/40'
+              : id === 'SHORT' ? 'bg-red-500/20 text-accent-red border-red-500/40'
+              : 'bg-accent-blue/20 text-accent-blue border-accent-blue/40'
+              : 'bg-dark-700 text-gray-400 hover:bg-dark-600 border-transparent'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -61,6 +110,13 @@ function EquityCurve({ curve }) {
   );
 }
 
+function snapshotDuration(s) {
+  if (!s.from || !s.to) return null;
+  const hours = (new Date(s.to) - new Date(s.from)) / 3600000;
+  if (hours < 48) return `~${Math.round(hours)}ч`;
+  return `~${Math.round(hours / 24)} дн`;
+}
+
 export default function Stats() {
   const [stats, setStats] = useState(null);
   const [analytics, setAnalytics] = useState(null);
@@ -78,17 +134,16 @@ export default function Stats() {
   const [optFrom, setOptFrom]         = useState(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); });
   const [optTo, setOptTo]             = useState(() => new Date().toISOString().slice(0, 10));
   const [optSortKey, setOptSortKey]   = useState('totalPnl');
+  const [optDirection, setOptDirection] = useState('BOTH');
 
   // Backtest form state
-  const [btPairId, setBtPairId] = useState('');
-  const [btFrom, setBtFrom] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() - 7);
-    return d.toISOString().slice(0, 10);
-  });
-  const [btTo, setBtTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [btPairId, setBtPairId]       = useState('');
+  const [btFrom, setBtFrom]           = useState(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); });
+  const [btTo, setBtTo]               = useState(() => new Date().toISOString().slice(0, 10));
   const [btThreshold, setBtThreshold] = useState(10);
-  const [btSl, setBtSl] = useState(1.5);
-  const [btTp, setBtTp] = useState(3.0);
+  const [btSl, setBtSl]               = useState(1.5);
+  const [btTp, setBtTp]               = useState(3.0);
+  const [btDirection, setBtDirection] = useState('BOTH');
 
   useEffect(() => {
     api.get('/stats').then(({ data }) => setStats(data)).catch(() => {});
@@ -105,9 +160,12 @@ export default function Stats() {
     setBacktest(null);
     setBtError(null);
     try {
-      const { data } = await api.get('/stats/backtest', {
-        params: { pairId: btPairId, from: btFrom, to: btTo + 'T23:59:59Z', threshold: btThreshold, slPct: btSl, tpPct: btTp },
-      });
+      const params = {
+        pairId: btPairId, from: btFrom, to: btTo + 'T23:59:59Z',
+        threshold: btThreshold, slPct: btSl, tpPct: btTp,
+      };
+      if (btDirection !== 'BOTH') params.direction = btDirection;
+      const { data } = await api.get('/stats/backtest', { params });
       setBacktest(data);
     } catch (err) {
       setBtError(err.response?.data?.error || 'Ошибка при запуске бэктеста');
@@ -123,6 +181,7 @@ export default function Stats() {
     try {
       const params = { from: optFrom, to: optTo + 'T23:59:59Z' };
       if (optPairIds.length > 0) params.pairIds = optPairIds.join(',');
+      if (optDirection !== 'BOTH') params.direction = optDirection;
       const { data } = await api.get('/stats/optimize', { params });
       setOptResults(data);
     } catch (err) {
@@ -139,7 +198,7 @@ export default function Stats() {
   };
 
   const tabs = [
-    { id: 'stats', label: 'Результаты' },
+    { id: 'stats',    label: 'Результаты' },
     { id: 'analytics', label: 'Аналитика' },
     { id: 'backtest', label: 'Бэктест' },
     { id: 'optimize', label: 'Оптимизация' },
@@ -238,7 +297,6 @@ export default function Stats() {
             <div className="text-gray-500">Loading...</div>
           ) : (
             <div className="space-y-6">
-              {/* By confidence */}
               <div className="bg-dark-800 rounded-xl border border-dark-600 p-4">
                 <h2 className="text-sm font-semibold mb-3">Winrate по уровню уверенности</h2>
                 <div className="grid grid-cols-4 gap-3">
@@ -259,14 +317,13 @@ export default function Stats() {
                 </div>
               </div>
 
-              {/* By direction */}
               <div className="bg-dark-800 rounded-xl border border-dark-600 p-4">
                 <h2 className="text-sm font-semibold mb-3">LONG vs SHORT</h2>
                 <div className="grid grid-cols-2 gap-4">
                   {Object.entries(analytics.byDirection || {}).map(([dir, data]) => (
                     <div key={dir} className={`rounded-lg p-4 border ${dir === 'LONG' ? 'border-accent-green/30 bg-accent-green/5' : 'border-accent-red/30 bg-accent-red/5'}`}>
                       <div className={`text-sm font-bold mb-2 ${dir === 'LONG' ? 'text-accent-green' : 'text-accent-red'}`}>
-                        {dir === 'LONG' ? '🟢' : '🔴'} {dir}
+                        {dir === 'LONG' ? '▲' : '▼'} {dir}
                       </div>
                       <div className="text-2xl font-bold mb-1">{data.total === 0 ? '—' : `${data.winRate}%`}</div>
                       <div className="text-xs text-gray-400">{data.wins}W / {data.losses}L of {data.total}</div>
@@ -280,7 +337,6 @@ export default function Stats() {
                 </div>
               </div>
 
-              {/* By hour heatmap */}
               <div className="bg-dark-800 rounded-xl border border-dark-600 p-4">
                 <h2 className="text-sm font-semibold mb-3">Winrate по часам (UTC)</h2>
                 <div className="grid grid-cols-12 gap-1">
@@ -322,15 +378,22 @@ export default function Stats() {
               <p className="text-sm text-gray-500">Снапшоты ещё не накоплены. Они записываются каждые 30 секунд автоматически.</p>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {snapshots.map((s) => (
-                  <div key={s.pairId} className="bg-dark-700 rounded-lg p-3">
-                    <div className="text-sm font-medium">{s.symbol.replace('USDC', '')}</div>
-                    <div className="text-lg font-bold text-accent-blue">{s.count.toLocaleString()}</div>
-                    <div className="text-[10px] text-gray-500">
-                      {s.from ? `с ${new Date(s.from).toLocaleDateString('ru-RU')}` : 'нет данных'}
+                {snapshots.map((s) => {
+                  const dur = snapshotDuration(s);
+                  const lowData = s.count < 2880; // менее 1 дня
+                  return (
+                    <div key={s.pairId} className={`rounded-lg p-3 border ${lowData ? 'bg-yellow-900/10 border-yellow-700/30' : 'bg-dark-700 border-transparent'}`}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <div className="text-sm font-medium">{s.symbol.replace('USDC', 'USDT')}</div>
+                        {lowData && <span className="text-[10px] text-yellow-500 font-medium">мало данных</span>}
+                      </div>
+                      <div className="text-lg font-bold text-accent-blue">{s.count.toLocaleString()}</div>
+                      <div className="text-[10px] text-gray-500">
+                        {dur ? `${dur}` : ''}{s.from ? ` · с ${new Date(s.from).toLocaleDateString('ru-RU')}` : 'нет данных'}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -340,34 +403,50 @@ export default function Stats() {
             <h2 className="text-sm font-semibold mb-4">Настройки бэктеста</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Пара</label>
+                <FieldLabel>Пара</FieldLabel>
                 <select value={btPairId} onChange={(e) => setBtPairId(e.target.value)} className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm">
                   {snapshots.map((s) => (
-                    <option key={s.pairId} value={s.pairId}>{s.symbol.replace('USDC', '')} ({s.count} снапшотов)</option>
+                    <option key={s.pairId} value={s.pairId}>{s.symbol.replace('USDC', 'USDT')} ({s.count.toLocaleString()} снп)</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">С даты</label>
+                <FieldLabel>С даты</FieldLabel>
                 <input type="date" value={btFrom} onChange={(e) => setBtFrom(e.target.value)} className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">По дату</label>
+                <FieldLabel>По дату</FieldLabel>
                 <input type="date" value={btTo} onChange={(e) => setBtTo(e.target.value)} className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Threshold (OBD дип)</label>
+                <FieldLabel tip="Минимальное синхронное движение всех 4 OBD индикаторов (в пунктах), при котором засчитывается сигнал. Чем выше — тем реже, но «чище» сигналы.">
+                  Threshold (OBD дип)
+                </FieldLabel>
                 <input type="number" value={btThreshold} onChange={(e) => setBtThreshold(e.target.value)} step="1" min="1" max="50" className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">SL %</label>
+                <FieldLabel tip="Stop Loss в % от цены входа. При достижении этого уровня сделка закрывается с убытком.">
+                  SL %
+                </FieldLabel>
                 <input type="number" value={btSl} onChange={(e) => setBtSl(e.target.value)} step="0.1" min="0.1" max="10" className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">TP %</label>
+                <FieldLabel tip="Take Profit в % от цены входа. При достижении этого уровня сделка закрывается с прибылью. Рекомендуется TP/SL ≥ 2.">
+                  TP %
+                </FieldLabel>
                 <input type="number" value={btTp} onChange={(e) => setBtTp(e.target.value)} step="0.1" min="0.1" max="20" className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm" />
               </div>
             </div>
+
+            <div className="flex items-center gap-4 mb-4">
+              <div>
+                <FieldLabel tip="Фильтровать сигналы только по одному направлению. LONG — покупка на росте, SHORT — продажа на падении. Полезно для анализа каждого направления отдельно.">
+                  Направление
+                </FieldLabel>
+                <DirectionToggle value={btDirection} onChange={setBtDirection} />
+              </div>
+            </div>
+
             <button
               onClick={runBacktest}
               disabled={btRunning || snapshots.length === 0}
@@ -377,11 +456,8 @@ export default function Stats() {
             </button>
           </div>
 
-          {/* Backtest error */}
           {btError && (
-            <div className="bg-red-900/20 border border-red-700 rounded-xl p-3 text-sm text-red-400">
-              {btError}
-            </div>
+            <div className="bg-red-900/20 border border-red-700 rounded-xl p-3 text-sm text-red-400">{btError}</div>
           )}
 
           {/* Backtest results */}
@@ -391,13 +467,36 @@ export default function Stats() {
 
               {backtest.stats ? (
                 <>
-                  <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
-                    <StatCard label="Сигналов" value={backtest.stats.total} />
-                    <StatCard label="Winrate" value={`${backtest.stats.winRate}%`} color={backtest.stats.winRate >= 50 ? 'text-accent-green' : 'text-accent-red'} />
-                    <StatCard label="WIN" value={backtest.stats.wins} color="text-accent-green" />
-                    <StatCard label="LOSS" value={backtest.stats.losses} color="text-accent-red" />
-                    <StatCard label="Total P&L" value={`${backtest.stats.totalPnl > 0 ? '+' : ''}${backtest.stats.totalPnl}%`} color={backtest.stats.totalPnl >= 0 ? 'text-accent-green' : 'text-accent-red'} />
-                    <StatCard label="Avg P&L" value={`${backtest.stats.avgPnl > 0 ? '+' : ''}${backtest.stats.avgPnl}%`} color={backtest.stats.avgPnl >= 0 ? 'text-accent-green' : 'text-accent-red'} />
+                  {backtest.stats.total < 50 && backtest.stats.total > 0 && (
+                    <div className="mb-4 flex items-start gap-2 bg-yellow-900/20 border border-yellow-700/40 rounded-lg px-3 py-2 text-xs text-yellow-400">
+                      <span className="mt-0.5">⚠</span>
+                      <span>Найдено только {backtest.stats.total} сигналов — мало для статистически достоверных выводов. Рекомендуется минимум 50 сигналов. Расширьте период или снизьте Threshold.</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-4">
+                    <StatCard label="Сигналов" value={backtest.stats.total}
+                      tooltip="Общее количество сигналов, обнаруженных за выбранный период с учётом 15-минутного кулдауна." />
+                    <StatCard label="Winrate" value={`${backtest.stats.winRate}%`}
+                      color={backtest.stats.winRate >= 50 ? 'text-accent-green' : 'text-accent-red'}
+                      tooltip="Процент сделок, завершившихся в прибыль (цена достигла TP раньше SL)." />
+                    <StatCard label="WIN" value={backtest.stats.wins} color="text-accent-green"
+                      tooltip="Количество сделок, в которых цена достигла Take Profit." />
+                    <StatCard label="LOSS" value={backtest.stats.losses} color="text-accent-red"
+                      tooltip="Количество сделок, в которых цена достигла Stop Loss." />
+                    <StatCard label="Total P&L" value={`${backtest.stats.totalPnl > 0 ? '+' : ''}${backtest.stats.totalPnl}%`}
+                      color={backtest.stats.totalPnl >= 0 ? 'text-accent-green' : 'text-accent-red'}
+                      tooltip="Суммарный P&L по всем сделкам — сумма всех выигрышей и проигрышей в процентах." />
+                    <StatCard label="Avg P&L" value={`${backtest.stats.avgPnl > 0 ? '+' : ''}${backtest.stats.avgPnl}%`}
+                      color={backtest.stats.avgPnl >= 0 ? 'text-accent-green' : 'text-accent-red'}
+                      tooltip="Средний P&L на одну сделку. Положительное значение означает, что стратегия прибыльна в среднем." />
+                    <StatCard label="Max Drawdown" value={`-${backtest.stats.maxDrawdown}%`}
+                      color="text-accent-red"
+                      tooltip="Максимальное падение капитала от пика до дна на equity кривой. Показывает худший возможный убыток, если войти в самый неудачный момент." />
+                    <StatCard label="Макс. серия" value={backtest.stats.maxConsecutiveLosses}
+                      sub="убытков подряд"
+                      color={backtest.stats.maxConsecutiveLosses >= 5 ? 'text-accent-red' : 'text-yellow-400'}
+                      tooltip="Максимальное количество убыточных сделок подряд. Важно для управления капиталом — показывает, насколько долго может быть «полоса неудач»." />
                   </div>
 
                   <EquityCurve curve={backtest.equityCurve} />
@@ -451,8 +550,10 @@ export default function Stats() {
             </p>
 
             <div className="mb-4">
-              <label className="block text-xs text-gray-400 mb-2">Пары (пусто = все)</label>
-              <div className="flex gap-2 flex-wrap">
+              <FieldLabel tip="Пары для оптимизации. Если ничего не выбрано — тестируются все активные пары одновременно.">
+                Пары (пусто = все)
+              </FieldLabel>
+              <div className="flex gap-2 flex-wrap mt-1">
                 {snapshots.map((s) => (
                   <button
                     key={s.pairId}
@@ -463,7 +564,7 @@ export default function Stats() {
                         : 'bg-dark-700 text-gray-400 hover:bg-dark-600'
                     }`}
                   >
-                    {s.symbol.replace('USDC', '')}
+                    {s.symbol.replace('USDC', 'USDT')}
                   </button>
                 ))}
               </div>
@@ -471,15 +572,22 @@ export default function Stats() {
 
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">С даты</label>
+                <FieldLabel>С даты</FieldLabel>
                 <input type="date" value={optFrom} onChange={(e) => setOptFrom(e.target.value)}
                   className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm" />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">По дату</label>
+                <FieldLabel>По дату</FieldLabel>
                 <input type="date" value={optTo} onChange={(e) => setOptTo(e.target.value)}
                   className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm" />
               </div>
+            </div>
+
+            <div className="mb-4">
+              <FieldLabel tip="Тестировать сигналы только одного направления. Позволяет найти лучшие параметры отдельно для LONG и SHORT.">
+                Направление
+              </FieldLabel>
+              <DirectionToggle value={optDirection} onChange={setOptDirection} />
             </div>
 
             <button
@@ -504,9 +612,10 @@ export default function Stats() {
                 <div className="flex items-center gap-2 text-xs text-gray-400">
                   Сортировка:
                   {[
-                    { key: 'totalPnl', label: 'Total P&L' },
-                    { key: 'avgPnl',   label: 'Avg P&L' },
-                    { key: 'winRate',  label: 'Winrate' },
+                    { key: 'totalPnl',   label: 'Total P&L' },
+                    { key: 'avgPnl',     label: 'Avg P&L' },
+                    { key: 'winRate',    label: 'Winrate' },
+                    { key: 'maxDrawdown', label: 'Drawdown ↑' },
                   ].map(({ key, label }) => (
                     <button key={key} onClick={() => setOptSortKey(key)}
                       className={`px-2 py-1 rounded ${optSortKey === key ? 'bg-accent-blue text-white' : 'bg-dark-700 hover:bg-dark-600'}`}>
@@ -522,19 +631,37 @@ export default function Stats() {
                     <tr>
                       <th className="text-left py-2 px-2">#</th>
                       <th className="text-left py-2 px-2">Пара</th>
-                      <th className="text-right py-2 px-2">Threshold</th>
-                      <th className="text-right py-2 px-2">SL%</th>
-                      <th className="text-right py-2 px-2">TP%</th>
-                      <th className="text-right py-2 px-2">Сигналов</th>
+                      <th className="text-right py-2 px-2">
+                        <span className="inline-flex items-center">Threshold<Tooltip text="Минимальный дип OBD для засчёта сигнала." /></span>
+                      </th>
+                      <th className="text-right py-2 px-2">
+                        <span className="inline-flex items-center">SL%<Tooltip text="Stop Loss в % от цены входа." /></span>
+                      </th>
+                      <th className="text-right py-2 px-2">
+                        <span className="inline-flex items-center">TP%<Tooltip text="Take Profit в % от цены входа." /></span>
+                      </th>
+                      <th className="text-right py-2 px-2">Сигн.</th>
                       <th className="text-right py-2 px-2">W/L</th>
-                      <th className="text-right py-2 px-2">Winrate</th>
-                      <th className="text-right py-2 px-2">Total P&L</th>
-                      <th className="text-right py-2 px-2">Avg P&L</th>
+                      <th className="text-right py-2 px-2">
+                        <span className="inline-flex items-center">WR<Tooltip text="Winrate — доля прибыльных сделок." /></span>
+                      </th>
+                      <th className="text-right py-2 px-2">
+                        <span className="inline-flex items-center">Total P&L<Tooltip text="Суммарный P&L по всем сделкам данной комбинации." /></span>
+                      </th>
+                      <th className="text-right py-2 px-2">
+                        <span className="inline-flex items-center">Avg P&L<Tooltip text="Средний P&L на сделку." /></span>
+                      </th>
+                      <th className="text-right py-2 px-2">
+                        <span className="inline-flex items-center">DD<Tooltip text="Max Drawdown — максимальное падение капитала от пика до дна." /></span>
+                      </th>
+                      <th className="text-right py-2 px-2">
+                        <span className="inline-flex items-center">SL×<Tooltip text="Максимальная серия убытков подряд." /></span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-dark-700">
                     {[...optResults.results]
-                      .sort((a, b) => b[optSortKey] - a[optSortKey])
+                      .sort((a, b) => optSortKey === 'maxDrawdown' ? a[optSortKey] - b[optSortKey] : b[optSortKey] - a[optSortKey])
                       .slice(0, 30)
                       .map((r, i) => (
                         <tr key={i} className={`hover:bg-dark-700 ${i < 3 ? 'bg-dark-700/40' : ''}`}>
@@ -557,6 +684,12 @@ export default function Stats() {
                           </td>
                           <td className={`py-2 px-2 text-right font-mono ${r.avgPnl >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
                             {r.avgPnl > 0 ? '+' : ''}{r.avgPnl}%
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono text-accent-red">
+                            -{r.maxDrawdown}%
+                          </td>
+                          <td className={`py-2 px-2 text-right font-mono ${r.maxConsLosses >= 5 ? 'text-accent-red' : 'text-gray-400'}`}>
+                            {r.maxConsLosses}
                           </td>
                         </tr>
                       ))}

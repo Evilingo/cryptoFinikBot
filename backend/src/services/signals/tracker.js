@@ -178,7 +178,7 @@ export async function getEnhancedStats(pairId = null, since = null) {
   return { byConfidence, byDirection, byHour };
 }
 
-export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.5, tpPct = 3.0 }) {
+export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.5, tpPct = 3.0, directionFilter = null }) {
   const snapshots = await prisma.obdSnapshot.findMany({
     where: {
       pairId: Number(pairId),
@@ -199,18 +199,18 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
 
   for (let i = 24; i < snapshots.length; i++) {
     const history = snapshots.slice(Math.max(0, i - 24), i + 1);
-    const direction = detectSignalFromHistory(history, threshold);
-    if (!direction) continue;
+    const detectedDir = detectSignalFromHistory(history, threshold);
+    if (!detectedDir) continue;
+    if (directionFilter && detectedDir !== directionFilter) continue;
 
     const snap = snapshots[i];
     const snapTime = new Date(snap.createdAt).getTime();
     if (snapTime - lastSignalAt < COOLDOWN) continue;
     lastSignalAt = snapTime;
 
-    // Find outcome in subsequent snapshots
     const entryPrice = snap.midPrice;
-    const sl = direction === 'LONG' ? entryPrice * (1 - slPct / 100) : entryPrice * (1 + slPct / 100);
-    const tp = direction === 'LONG' ? entryPrice * (1 + tpPct / 100) : entryPrice * (1 - tpPct / 100);
+    const sl = detectedDir === 'LONG' ? entryPrice * (1 - slPct / 100) : entryPrice * (1 + slPct / 100);
+    const tp = detectedDir === 'LONG' ? entryPrice * (1 + tpPct / 100) : entryPrice * (1 - tpPct / 100);
 
     let outcome = 'TIMEOUT';
     let exitPrice = entryPrice;
@@ -221,7 +221,7 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
       if (futureTime - snapTime > TIMEOUT) break;
 
       const p = future.midPrice;
-      if (direction === 'LONG') {
+      if (detectedDir === 'LONG') {
         if (p >= tp) { outcome = 'WIN'; exitPrice = tp; break; }
         if (p <= sl) { outcome = 'LOSS'; exitPrice = sl; break; }
       } else {
@@ -232,17 +232,17 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
     }
 
     if (outcome === 'TIMEOUT') {
-      const pnlRaw = direction === 'LONG'
+      const pnlRaw = detectedDir === 'LONG'
         ? (exitPrice - entryPrice) / entryPrice * 100
         : (entryPrice - exitPrice) / entryPrice * 100;
       outcome = pnlRaw > 0.1 ? 'WIN' : pnlRaw < -0.1 ? 'LOSS' : 'BREAKEVEN';
     }
 
-    const pnl = direction === 'LONG'
+    const pnl = detectedDir === 'LONG'
       ? Math.round((exitPrice - entryPrice) / entryPrice * 10000) / 100
       : Math.round((entryPrice - exitPrice) / entryPrice * 10000) / 100;
 
-    signals.push({ direction, entryPrice, exitPrice, sl, tp, outcome, pnl, createdAt: snap.createdAt });
+    signals.push({ direction: detectedDir, entryPrice, exitPrice, sl, tp, outcome, pnl, createdAt: snap.createdAt });
   }
 
   const total = signals.length;
@@ -254,6 +254,21 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
   let equity = 0;
   const equityCurve = signals.map((s) => { equity += s.pnl; return Math.round(equity * 100) / 100; });
 
+  // Max drawdown (peak-to-trough on equity curve)
+  let peak = 0, maxDrawdown = 0;
+  for (const val of equityCurve) {
+    if (val > peak) peak = val;
+    const dd = peak - val;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+
+  // Max consecutive losses
+  let maxConsecutiveLosses = 0, streak = 0;
+  for (const s of signals) {
+    if (s.outcome === 'LOSS') { streak++; if (streak > maxConsecutiveLosses) maxConsecutiveLosses = streak; }
+    else streak = 0;
+  }
+
   return {
     snapshotCount: snapshots.length,
     signals,
@@ -264,6 +279,8 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
       winRate: total > 0 ? Math.round((wins / total) * 10000) / 100 : 0,
       totalPnl: Math.round(totalPnl * 100) / 100,
       avgPnl: total > 0 ? Math.round((totalPnl / total) * 100) / 100 : 0,
+      maxDrawdown: Math.round(maxDrawdown * 100) / 100,
+      maxConsecutiveLosses,
     },
   };
 }
@@ -272,7 +289,7 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
  * Parameter sweep — загружает снапшоты один раз на пару, перебирает
  * все комбинации threshold/SL/TP в памяти. Масштабируется на любой объём данных.
  */
-export async function runOptimize({ pairIds = null, from, to }) {
+export async function runOptimize({ pairIds = null, from, to, directionFilter = null }) {
   const THRESHOLDS = [5, 8, 10, 12, 15, 20];
   const SL_PCTS   = [0.3, 0.5, 0.7, 1.0];
   const TP_PCTS   = [1.0, 1.5, 2.0, 3.0];
@@ -305,6 +322,7 @@ export async function runOptimize({ pairIds = null, from, to }) {
         const history = snapshots.slice(Math.max(0, i - 24), i + 1);
         const direction = detectSignalFromHistory(history, threshold);
         if (!direction) continue;
+        if (directionFilter && direction !== directionFilter) continue;
 
         const snapTime = new Date(snapshots[i].createdAt).getTime();
         if (snapTime - lastSignalAt < COOLDOWN) continue;
@@ -320,6 +338,8 @@ export async function runOptimize({ pairIds = null, from, to }) {
           if (tpPct / slPct < 1.5) continue; // минимальный RR 1.5
 
           let wins = 0, losses = 0, totalPnl = 0;
+          let equity = 0, eqPeak = 0, maxDrawdown = 0;
+          let maxConsLosses = 0, consStreak = 0;
 
           for (const { idx, direction, snap, snapTime } of signalPoints) {
             const entry = snap.midPrice;
@@ -350,6 +370,16 @@ export async function runOptimize({ pairIds = null, from, to }) {
             if (outcome === 'WIN')  wins++;
             if (outcome === 'LOSS') losses++;
             totalPnl += pnl;
+
+            // Drawdown tracking
+            equity += pnl;
+            if (equity > eqPeak) eqPeak = equity;
+            const dd = eqPeak - equity;
+            if (dd > maxDrawdown) maxDrawdown = dd;
+
+            // Consecutive losses
+            if (outcome === 'LOSS') { consStreak++; if (consStreak > maxConsLosses) maxConsLosses = consStreak; }
+            else consStreak = 0;
           }
 
           const total = signalPoints.length;
@@ -362,9 +392,11 @@ export async function runOptimize({ pairIds = null, from, to }) {
             total,
             wins,
             losses,
-            winRate:  total > 0 ? Math.round((wins / total) * 10000) / 100 : 0,
-            totalPnl: Math.round(totalPnl * 100) / 100,
-            avgPnl:   total > 0 ? Math.round((totalPnl / total) * 100) / 100 : 0,
+            winRate:    total > 0 ? Math.round((wins / total) * 10000) / 100 : 0,
+            totalPnl:   Math.round(totalPnl * 100) / 100,
+            avgPnl:     total > 0 ? Math.round((totalPnl / total) * 100) / 100 : 0,
+            maxDrawdown: Math.round(maxDrawdown * 100) / 100,
+            maxConsLosses,
           });
         }
       }
