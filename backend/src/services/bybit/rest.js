@@ -45,17 +45,22 @@ async function privateGet(path, params = {}) {
   });
 
   if (!res.ok) {
+    const raw = await res.text().catch(() => '');
     let errMsg = `Bybit HTTP ${res.status}`;
     try {
-      const data = await res.json();
-      if (data.retMsg) errMsg = `Bybit error ${data.retCode}: ${data.retMsg}`;
-    } catch {}
+      const parsed = JSON.parse(raw);
+      const msg = parsed.retMsg || parsed.message || '';
+      const code = parsed.retCode ?? parsed.ret_code ?? '';
+      if (msg) errMsg = `Bybit ${code}: ${msg}`;
+    } catch {
+      if (raw) errMsg = `Bybit HTTP ${res.status}: ${raw.slice(0, 120)}`;
+    }
     throw new Error(errMsg);
   }
 
   const data = await res.json();
   if (data.retCode !== 0) {
-    throw new Error(`Bybit error ${data.retCode}: ${data.retMsg}`);
+    throw new Error(`Bybit ${data.retCode}: ${data.retMsg}`);
   }
   return data;
 }
@@ -80,17 +85,22 @@ async function privatePost(path, body = {}) {
   });
 
   if (!res.ok) {
+    const raw = await res.text().catch(() => '');
     let errMsg = `Bybit HTTP ${res.status}`;
     try {
-      const data = await res.json();
-      if (data.retMsg) errMsg = `Bybit error ${data.retCode}: ${data.retMsg}`;
-    } catch {}
+      const parsed = JSON.parse(raw);
+      const msg = parsed.retMsg || parsed.message || '';
+      const code = parsed.retCode ?? parsed.ret_code ?? '';
+      if (msg) errMsg = `Bybit ${code}: ${msg}`;
+    } catch {
+      if (raw) errMsg = `Bybit HTTP ${res.status}: ${raw.slice(0, 120)}`;
+    }
     throw new Error(errMsg);
   }
 
   const data = await res.json();
   if (data.retCode !== 0) {
-    throw new Error(`Bybit error ${data.retCode}: ${data.retMsg}`);
+    throw new Error(`Bybit ${data.retCode}: ${data.retMsg}`);
   }
   return data;
 }
