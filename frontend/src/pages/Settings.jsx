@@ -94,6 +94,7 @@ export default function Settings() {
 
         const ok = perms?.canTrade ? true : null;
         setBybitStatus({ ok, msg: `Keys saved · ${balLine}${permLine}` });
+        window.dispatchEvent(new CustomEvent('finik:balance-refresh'));
       } catch (err) {
         const reason = err.response?.data?.error || err.message || 'unknown error';
         setBybitStatus({ ok: false, msg: `Keys saved · Connection failed: ${reason}` });
@@ -184,10 +185,9 @@ export default function Settings() {
         balLine = balances.map(b => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
       }
 
-      const ok = !perms?.error && (perms?.canTrade || false);
-      // If we got balances but no trade permission, show as warning (partial success)
-      const status = perms?.readOnly || (!perms?.canTrade && !perms?.error) ? null : true;
-      setBybitStatus({ ok: ok ? true : (perms ? null : true), msg: `${balLine}${permLine}` });
+      const ok = perms?.canTrade ? true : null;
+      setBybitStatus({ ok, msg: `${balLine}${permLine}` });
+      window.dispatchEvent(new CustomEvent('finik:balance-refresh'));
       setTimeout(() => setBybitStatus(null), 12000);
     } catch (err) {
       setBybitStatus({ ok: false, msg: err.response?.data?.error || err.message });
