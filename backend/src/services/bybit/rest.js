@@ -305,18 +305,18 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
 export async function queryApiPermissions() {
   const data = await privateGet('/v5/user/query-api');
   const perms = data.result?.permissions || {};
-  // Bybit returns permissions as { ContractTrade: [], SpotTrade: ['Order'], ... }
-  const spotTrade = Array.isArray(perms.SpotTrade) ? perms.SpotTrade : [];
+  // Bybit V5 actual structure: { Spot: ['SpotTrade'], ContractTrade: ['Order','Position'], Wallet: [...], ... }
+  const spot = Array.isArray(perms.Spot) ? perms.Spot : [];
   const contractTrade = Array.isArray(perms.ContractTrade) ? perms.ContractTrade : [];
   const wallet = Array.isArray(perms.Wallet) ? perms.Wallet : [];
 
-  const canTrade = spotTrade.length > 0 || contractTrade.length > 0;
-  const canRead = wallet.length > 0 || spotTrade.length > 0 || contractTrade.length > 0;
+  const canTrade = spot.includes('SpotTrade') || contractTrade.length > 0;
+  const canRead = wallet.length > 0 || spot.length > 0 || contractTrade.length > 0;
 
   return {
     canRead,
     canTrade,
-    spotTrade,
+    spotTrade: spot,
     contractTrade,
     wallet,
     readOnly: data.result?.readOnly === 1,
