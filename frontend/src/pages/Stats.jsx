@@ -499,6 +499,13 @@ export default function Stats() {
                       tooltip="Максимальное количество убыточных сделок подряд. Важно для управления капиталом — показывает, насколько долго может быть «полоса неудач»." />
                   </div>
 
+                  <div className="mt-3 flex items-center gap-1.5 text-xs text-gray-500">
+                    <span className="text-yellow-600">★</span>
+                    P&L уже с учётом комиссии биржи
+                    <span className="font-mono text-yellow-500">−{backtest.stats.feeTotalPct}%</span>
+                    <span className="text-gray-600">({backtest.stats.total} сделок × 0.2% round-trip)</span>
+                  </div>
+
                   <EquityCurve curve={backtest.equityCurve} />
 
                   {backtest.signals.length > 0 && (

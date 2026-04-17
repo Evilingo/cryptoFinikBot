@@ -178,6 +178,9 @@ export async function getEnhancedStats(pairId = null, since = null) {
   return { byConfidence, byDirection, byHour };
 }
 
+// Bybit Spot: 0.1% taker на вход + 0.1% taker на выход = 0.2% round-trip
+const ROUND_TRIP_FEE_PCT = 0.2;
+
 export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.5, tpPct = 3.0, directionFilter = null }) {
   const snapshots = await prisma.obdSnapshot.findMany({
     where: {
@@ -204,7 +207,7 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
     if (directionFilter && detectedDir !== directionFilter) continue;
 
     const snap = snapshots[i];
-    const snapTime = new Date(snap.createdAt).getTime();
+    const snapTime = snap.createdAt.getTime();
     if (snapTime - lastSignalAt < COOLDOWN) continue;
     lastSignalAt = snapTime;
 
@@ -217,8 +220,7 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
 
     for (let j = i + 1; j < snapshots.length; j++) {
       const future = snapshots[j];
-      const futureTime = new Date(future.createdAt).getTime();
-      if (futureTime - snapTime > TIMEOUT) break;
+      if (future.createdAt.getTime() - snapTime > TIMEOUT) break;
 
       const p = future.midPrice;
       if (detectedDir === 'LONG') {
@@ -231,16 +233,16 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
       exitPrice = p;
     }
 
-    if (outcome === 'TIMEOUT') {
-      const pnlRaw = detectedDir === 'LONG'
-        ? (exitPrice - entryPrice) / entryPrice * 100
-        : (entryPrice - exitPrice) / entryPrice * 100;
-      outcome = pnlRaw > 0.1 ? 'WIN' : pnlRaw < -0.1 ? 'LOSS' : 'BREAKEVEN';
-    }
+    const rawPnl = detectedDir === 'LONG'
+      ? (exitPrice - entryPrice) / entryPrice * 100
+      : (entryPrice - exitPrice) / entryPrice * 100;
 
-    const pnl = detectedDir === 'LONG'
-      ? Math.round((exitPrice - entryPrice) / entryPrice * 10000) / 100
-      : Math.round((entryPrice - exitPrice) / entryPrice * 10000) / 100;
+    // Вычитаем комиссию биржи (0.1% вход + 0.1% выход = 0.2% round-trip)
+    const pnl = Math.round((rawPnl - ROUND_TRIP_FEE_PCT) * 100) / 100;
+
+    if (outcome === 'TIMEOUT') {
+      outcome = pnl > 0 ? 'WIN' : pnl < 0 ? 'LOSS' : 'BREAKEVEN';
+    }
 
     signals.push({ direction: detectedDir, entryPrice, exitPrice, sl, tp, outcome, pnl, createdAt: snap.createdAt });
   }
@@ -269,6 +271,8 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
     else streak = 0;
   }
 
+  const feeTotalPct = Math.round(total * ROUND_TRIP_FEE_PCT * 100) / 100;
+
   return {
     snapshotCount: snapshots.length,
     signals,
@@ -281,6 +285,7 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
       avgPnl: total > 0 ? Math.round((totalPnl / total) * 100) / 100 : 0,
       maxDrawdown: Math.round(maxDrawdown * 100) / 100,
       maxConsecutiveLosses,
+      feeTotalPct,
     },
   };
 }
@@ -350,7 +355,7 @@ export async function runOptimize({ pairIds = null, from, to, directionFilter = 
             let exitPrice = entry;
 
             for (let j = idx + 1; j < snapshots.length; j++) {
-              if (new Date(snapshots[j].createdAt).getTime() - snapTime > TIMEOUT) break;
+              if (snapshots[j].createdAt.getTime() - snapTime > TIMEOUT) break;
               const p = snapshots[j].midPrice;
               if (direction === 'LONG') {
                 if (p >= tp) { outcome = 'WIN';  exitPrice = tp; break; }
@@ -362,11 +367,14 @@ export async function runOptimize({ pairIds = null, from, to, directionFilter = 
               exitPrice = p;
             }
 
-            const pnl = direction === 'LONG'
+            const rawPnl = direction === 'LONG'
               ? (exitPrice - entry) / entry * 100
               : (entry - exitPrice) / entry * 100;
 
-            if (outcome === 'TIMEOUT') outcome = pnl > 0.1 ? 'WIN' : pnl < -0.1 ? 'LOSS' : 'BREAKEVEN';
+            // Вычитаем комиссию 0.2% round-trip
+            const pnl = rawPnl - ROUND_TRIP_FEE_PCT;
+
+            if (outcome === 'TIMEOUT') outcome = pnl > 0 ? 'WIN' : pnl < 0 ? 'LOSS' : 'BREAKEVEN';
             if (outcome === 'WIN')  wins++;
             if (outcome === 'LOSS') losses++;
             totalPnl += pnl;
