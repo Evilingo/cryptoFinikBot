@@ -310,14 +310,14 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
 
         {/* Right panel */}
         <div className="dash-right">
-          <div className="card">
-            <div className="card-header">
+          <div className="card" style={{overflow: 'hidden', display: 'flex', flexDirection: 'column'}}>
+            <div className="card-header" style={{flexShrink: 0}}>
               <div>
                 <div className="card-title">Quick Trade</div>
                 <div className="card-sub">Manual order · {selPair?.tradeSymbol || 'BTCUSDT'}</div>
               </div>
             </div>
-            <div className="trade-panel">
+            <div className="trade-panel" style={{overflowY: 'auto', flex: 1}}>
               <div className="trade-pair-select">
                 <CoinGlyph symbol={selBase} size={28}/>
                 <div style={{flex: 1}}>
