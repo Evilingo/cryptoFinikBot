@@ -44,7 +44,8 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
   const obdRef = useRef({});
   const [obdData, setObdData] = useState({});
   const lastObdAt = useRef(0);
-  const [exchangeConnected, setExchangeConnected] = useState(false);
+  const [wsLive, setWsLive] = useState(false);
+  const [keysOk, setKeysOk] = useState(false);
   // Initialize synchronously so charts render on first paint
   const candlesRef = useRef({ ...INIT_CANDLES });
   const deltaRef = useRef({});
@@ -60,13 +61,16 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
 
   useEffect(() => {
     api.get('/pairs').then(({ data }) => setPairs(data)).catch(() => {});
-    api.get('/balance').then(({ data }) => setBalances(Array.isArray(data) ? data : [])).catch(() => {});
+    const fetchBalance = () =>
+      api.get('/balance')
+        .then(({ data }) => { setBalances(Array.isArray(data) ? data : []); setKeysOk(true); })
+        .catch(() => { setKeysOk(false); });
+
+    fetchBalance();
     api.get('/trade').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {});
 
     // Refresh balance every 60s so it updates after key changes without reload
-    const balInterval = setInterval(() => {
-      api.get('/balance').then(({ data }) => setBalances(Array.isArray(data) ? data : [])).catch(() => {});
-    }, 60000);
+    const balInterval = setInterval(fetchBalance, 60000);
 
     // Fetch real klines for each pair
     PAIRS_CONFIG.forEach(p => {
@@ -98,21 +102,18 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
       api.get('/trade').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {});
     }, 5000);
 
-    const onBalanceRefresh = () => {
-      api.get('/balance').then(({ data }) => setBalances(Array.isArray(data) ? data : [])).catch(() => {});
-    };
-    window.addEventListener('finik:balance-refresh', onBalanceRefresh);
+    window.addEventListener('finik:balance-refresh', fetchBalance);
 
-    // Exchange WS health: green only if OBD_UPDATE arrived within last 15s
+    // Exchange WS health: green only if OBD_UPDATE arrived within last 15s AND keys work
     const exchCheck = setInterval(() => {
-      setExchangeConnected(Date.now() - lastObdAt.current < 15000);
+      setWsLive(Date.now() - lastObdAt.current < 15000);
     }, 3000);
 
     return () => {
       clearInterval(posInterval);
       clearInterval(balInterval);
       clearInterval(exchCheck);
-      window.removeEventListener('finik:balance-refresh', onBalanceRefresh);
+      window.removeEventListener('finik:balance-refresh', fetchBalance);
     };
   }, []);
 
@@ -228,7 +229,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
           <p>4 pairs monitored · OBD engine live</p>
         </div>
         <div className="topbar-actions">
-          <ConnIndicator connected={exchangeConnected} exchange={allPairs[0]?.monitorSymbol?.endsWith('USDT') ? 'Bybit' : 'Binance'}/>
+          <ConnIndicator connected={wsLive && keysOk} exchange={allPairs[0]?.monitorSymbol?.endsWith('USDT') ? 'Bybit' : 'Binance'}/>
           <div className="seg">
             <button className={viewMode === 'grid' ? 'active' : ''} onClick={() => setViewMode('grid')}>2×2</button>
             <button className={viewMode === 'single' ? 'active' : ''} onClick={() => setViewMode('single')}>Focus</button>
