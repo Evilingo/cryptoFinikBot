@@ -70,6 +70,15 @@ export default function Stats() {
   const [btError, setBtError] = useState(null);
   const [activeTab, setActiveTab] = useState('stats');
 
+  // Optimize state
+  const [optRunning, setOptRunning]   = useState(false);
+  const [optResults, setOptResults]   = useState(null);
+  const [optError, setOptError]       = useState(null);
+  const [optPairIds, setOptPairIds]   = useState([]);
+  const [optFrom, setOptFrom]         = useState(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); });
+  const [optTo, setOptTo]             = useState(() => new Date().toISOString().slice(0, 10));
+  const [optSortKey, setOptSortKey]   = useState('totalPnl');
+
   // Backtest form state
   const [btPairId, setBtPairId] = useState('');
   const [btFrom, setBtFrom] = useState(() => {
@@ -107,10 +116,33 @@ export default function Stats() {
     }
   };
 
+  const runOptimize = async () => {
+    setOptRunning(true);
+    setOptResults(null);
+    setOptError(null);
+    try {
+      const params = { from: optFrom, to: optTo + 'T23:59:59Z' };
+      if (optPairIds.length > 0) params.pairIds = optPairIds.join(',');
+      const { data } = await api.get('/stats/optimize', { params });
+      setOptResults(data);
+    } catch (err) {
+      setOptError(err.response?.data?.error || 'Ошибка оптимизации');
+    } finally {
+      setOptRunning(false);
+    }
+  };
+
+  const togglePair = (pairId) => {
+    setOptPairIds((prev) =>
+      prev.includes(pairId) ? prev.filter((id) => id !== pairId) : [...prev, pairId]
+    );
+  };
+
   const tabs = [
     { id: 'stats', label: 'Результаты' },
     { id: 'analytics', label: 'Аналитика' },
     { id: 'backtest', label: 'Бэктест' },
+    { id: 'optimize', label: 'Оптимизация' },
   ];
 
   return (
@@ -404,6 +436,133 @@ export default function Stats() {
                   Недостаточно снапшотов в выбранном периоде. Нужно минимум 24 точки (12 минут при 30с интервале).
                 </p>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: Optimize */}
+      {activeTab === 'optimize' && (
+        <div className="space-y-6">
+          <div className="bg-dark-800 rounded-xl border border-dark-600 p-4">
+            <h2 className="text-sm font-semibold mb-1">Перебор параметров</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Перебирает threshold [5,8,10,12,15,20] × SL [0.3,0.5,0.7,1.0]% × TP [1.0,1.5,2.0,3.0]% и показывает лучшие комбинации.
+            </p>
+
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 mb-2">Пары (пусто = все)</label>
+              <div className="flex gap-2 flex-wrap">
+                {snapshots.map((s) => (
+                  <button
+                    key={s.pairId}
+                    onClick={() => togglePair(s.pairId)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      optPairIds.includes(s.pairId)
+                        ? 'bg-accent-blue text-white'
+                        : 'bg-dark-700 text-gray-400 hover:bg-dark-600'
+                    }`}
+                  >
+                    {s.symbol.replace('USDC', '')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">С даты</label>
+                <input type="date" value={optFrom} onChange={(e) => setOptFrom(e.target.value)}
+                  className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">По дату</label>
+                <input type="date" value={optTo} onChange={(e) => setOptTo(e.target.value)}
+                  className="w-full bg-dark-700 border border-dark-600 rounded px-2 py-1.5 text-sm" />
+              </div>
+            </div>
+
+            <button
+              onClick={runOptimize}
+              disabled={optRunning || snapshots.length === 0}
+              className="px-4 py-2 bg-accent-blue hover:bg-blue-600 disabled:opacity-50 rounded-lg text-sm font-medium"
+            >
+              {optRunning ? 'Считаю...' : 'Запустить оптимизацию'}
+            </button>
+          </div>
+
+          {optError && (
+            <div className="bg-red-900/20 border border-red-700 rounded-xl p-3 text-sm text-red-400">{optError}</div>
+          )}
+
+          {optResults && (
+            <div className="bg-dark-800 rounded-xl border border-dark-600 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold">
+                  Результаты — {optResults.combinations} комбинаций
+                </h2>
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  Сортировка:
+                  {[
+                    { key: 'totalPnl', label: 'Total P&L' },
+                    { key: 'avgPnl',   label: 'Avg P&L' },
+                    { key: 'winRate',  label: 'Winrate' },
+                  ].map(({ key, label }) => (
+                    <button key={key} onClick={() => setOptSortKey(key)}
+                      className={`px-2 py-1 rounded ${optSortKey === key ? 'bg-accent-blue text-white' : 'bg-dark-700 hover:bg-dark-600'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-gray-500 border-b border-dark-600">
+                    <tr>
+                      <th className="text-left py-2 px-2">#</th>
+                      <th className="text-left py-2 px-2">Пара</th>
+                      <th className="text-right py-2 px-2">Threshold</th>
+                      <th className="text-right py-2 px-2">SL%</th>
+                      <th className="text-right py-2 px-2">TP%</th>
+                      <th className="text-right py-2 px-2">Сигналов</th>
+                      <th className="text-right py-2 px-2">W/L</th>
+                      <th className="text-right py-2 px-2">Winrate</th>
+                      <th className="text-right py-2 px-2">Total P&L</th>
+                      <th className="text-right py-2 px-2">Avg P&L</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-dark-700">
+                    {[...optResults.results]
+                      .sort((a, b) => b[optSortKey] - a[optSortKey])
+                      .slice(0, 30)
+                      .map((r, i) => (
+                        <tr key={i} className={`hover:bg-dark-700 ${i < 3 ? 'bg-dark-700/40' : ''}`}>
+                          <td className="py-2 px-2 text-gray-500">{i + 1}</td>
+                          <td className="py-2 px-2 font-medium">{r.symbol.replace('USDT', '').replace('USDC', '')}</td>
+                          <td className="py-2 px-2 text-right font-mono">{r.threshold}</td>
+                          <td className="py-2 px-2 text-right font-mono">{r.slPct}%</td>
+                          <td className="py-2 px-2 text-right font-mono">{r.tpPct}%</td>
+                          <td className="py-2 px-2 text-right">{r.total}</td>
+                          <td className="py-2 px-2 text-right">
+                            <span className="text-accent-green">{r.wins}</span>
+                            <span className="text-gray-600">/</span>
+                            <span className="text-accent-red">{r.losses}</span>
+                          </td>
+                          <td className={`py-2 px-2 text-right font-mono ${r.winRate >= 50 ? 'text-accent-green' : 'text-accent-red'}`}>
+                            {r.winRate}%
+                          </td>
+                          <td className={`py-2 px-2 text-right font-mono font-bold ${r.totalPnl >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+                            {r.totalPnl > 0 ? '+' : ''}{r.totalPnl}%
+                          </td>
+                          <td className={`py-2 px-2 text-right font-mono ${r.avgPnl >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+                            {r.avgPnl > 0 ? '+' : ''}{r.avgPnl}%
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

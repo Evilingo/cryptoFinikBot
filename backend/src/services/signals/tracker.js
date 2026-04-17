@@ -268,6 +268,113 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
   };
 }
 
+/**
+ * Parameter sweep — загружает снапшоты один раз на пару, перебирает
+ * все комбинации threshold/SL/TP в памяти. Масштабируется на любой объём данных.
+ */
+export async function runOptimize({ pairIds = null, from, to }) {
+  const THRESHOLDS = [5, 8, 10, 12, 15, 20];
+  const SL_PCTS   = [0.3, 0.5, 0.7, 1.0];
+  const TP_PCTS   = [1.0, 1.5, 2.0, 3.0];
+  const COOLDOWN  = 15 * 60 * 1000;
+  const TIMEOUT   = 60 * 60 * 1000;
+
+  const pairFilter = pairIds?.length
+    ? { id: { in: pairIds.map(Number) }, isActive: true }
+    : { isActive: true };
+  const pairs = await prisma.tradingPair.findMany({ where: pairFilter });
+
+  const { detectSignalFromHistory } = await import('../indicators/engine.js');
+  const results = [];
+
+  for (const pair of pairs) {
+    const snapshots = await prisma.obdSnapshot.findMany({
+      where: { pairId: pair.id, createdAt: { gte: new Date(from), lte: new Date(to) } },
+      orderBy: { createdAt: 'asc' },
+      select: { obd1: true, obd2: true, obd3: true, obd4: true, midPrice: true, createdAt: true },
+    });
+
+    if (snapshots.length < 24) continue;
+
+    // Для каждого threshold найти все сигнальные точки (один проход)
+    for (const threshold of THRESHOLDS) {
+      const signalPoints = [];
+      let lastSignalAt = 0;
+
+      for (let i = 24; i < snapshots.length; i++) {
+        const history = snapshots.slice(Math.max(0, i - 24), i + 1);
+        const direction = detectSignalFromHistory(history, threshold);
+        if (!direction) continue;
+
+        const snapTime = new Date(snapshots[i].createdAt).getTime();
+        if (snapTime - lastSignalAt < COOLDOWN) continue;
+        lastSignalAt = snapTime;
+        signalPoints.push({ idx: i, direction, snap: snapshots[i], snapTime });
+      }
+
+      if (signalPoints.length === 0) continue;
+
+      // Для каждой комбинации SL/TP оценить исходы в памяти
+      for (const slPct of SL_PCTS) {
+        for (const tpPct of TP_PCTS) {
+          if (tpPct / slPct < 1.5) continue; // минимальный RR 1.5
+
+          let wins = 0, losses = 0, totalPnl = 0;
+
+          for (const { idx, direction, snap, snapTime } of signalPoints) {
+            const entry = snap.midPrice;
+            const sl = direction === 'LONG' ? entry * (1 - slPct / 100) : entry * (1 + slPct / 100);
+            const tp = direction === 'LONG' ? entry * (1 + tpPct / 100) : entry * (1 - tpPct / 100);
+
+            let outcome = 'TIMEOUT';
+            let exitPrice = entry;
+
+            for (let j = idx + 1; j < snapshots.length; j++) {
+              if (new Date(snapshots[j].createdAt).getTime() - snapTime > TIMEOUT) break;
+              const p = snapshots[j].midPrice;
+              if (direction === 'LONG') {
+                if (p >= tp) { outcome = 'WIN';  exitPrice = tp; break; }
+                if (p <= sl) { outcome = 'LOSS'; exitPrice = sl; break; }
+              } else {
+                if (p <= tp) { outcome = 'WIN';  exitPrice = tp; break; }
+                if (p >= sl) { outcome = 'LOSS'; exitPrice = sl; break; }
+              }
+              exitPrice = p;
+            }
+
+            const pnl = direction === 'LONG'
+              ? (exitPrice - entry) / entry * 100
+              : (entry - exitPrice) / entry * 100;
+
+            if (outcome === 'TIMEOUT') outcome = pnl > 0.1 ? 'WIN' : pnl < -0.1 ? 'LOSS' : 'BREAKEVEN';
+            if (outcome === 'WIN')  wins++;
+            if (outcome === 'LOSS') losses++;
+            totalPnl += pnl;
+          }
+
+          const total = signalPoints.length;
+          results.push({
+            symbol: pair.monitorSymbol,
+            pairId: pair.id,
+            threshold,
+            slPct,
+            tpPct,
+            total,
+            wins,
+            losses,
+            winRate:  total > 0 ? Math.round((wins / total) * 10000) / 100 : 0,
+            totalPnl: Math.round(totalPnl * 100) / 100,
+            avgPnl:   total > 0 ? Math.round((totalPnl / total) * 100) / 100 : 0,
+          });
+        }
+      }
+    }
+  }
+
+  results.sort((a, b) => b.totalPnl - a.totalPnl);
+  return { results, combinations: results.length };
+}
+
 export async function getSignalStats(pairId = null, since = null) {
   const where = { outcome: { not: null } };
   if (pairId) where.pairId = pairId;

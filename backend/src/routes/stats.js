@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
-import { getSignalStats, getEnhancedStats, runBacktest } from '../services/signals/tracker.js';
+import { getSignalStats, getEnhancedStats, runBacktest, runOptimize } from '../services/signals/tracker.js';
 import { prisma } from '../db/prisma.js';
 
 const router = Router();
@@ -72,6 +72,25 @@ router.get('/backtest', authMiddleware, async (req, res) => {
     slPct: parsedSl,
     tpPct: parsedTp,
   });
+  res.json(result);
+});
+
+router.get('/optimize', authMiddleware, async (req, res) => {
+  const { pairIds, from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+
+  const fromDate = new Date(from);
+  const toDate   = new Date(to);
+  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+    return res.status(400).json({ error: 'Invalid date format' });
+  }
+  if (fromDate >= toDate) return res.status(400).json({ error: 'from must be before to' });
+
+  const parsedPairIds = pairIds
+    ? pairIds.split(',').map(Number).filter(Boolean)
+    : null;
+
+  const result = await runOptimize({ pairIds: parsedPairIds, from: fromDate, to: toDate });
   res.json(result);
 });
 
