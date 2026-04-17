@@ -43,8 +43,6 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
 
   const obdRef = useRef({});
   const [obdData, setObdData] = useState({});
-  const lastObdAt = useRef(0);
-  const [wsLive, setWsLive] = useState(false);
   const [keysOk, setKeysOk] = useState(false);
   // Initialize synchronously so charts render on first paint
   const candlesRef = useRef({ ...INIT_CANDLES });
@@ -104,22 +102,15 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
 
     window.addEventListener('finik:balance-refresh', fetchBalance);
 
-    // Exchange WS health: green only if OBD_UPDATE arrived within last 15s AND keys work
-    const exchCheck = setInterval(() => {
-      setWsLive(Date.now() - lastObdAt.current < 15000);
-    }, 3000);
-
     return () => {
       clearInterval(posInterval);
       clearInterval(balInterval);
-      clearInterval(exchCheck);
       window.removeEventListener('finik:balance-refresh', fetchBalance);
     };
   }, []);
 
   const onWsMessage = useCallback((msg) => {
     if (msg.type === 'OBD_UPDATE') {
-      lastObdAt.current = Date.now();
       obdRef.current[msg.symbol] = {
         obd1: msg.obd1, obd2: msg.obd2,
         obd3: msg.obd3, obd4: msg.obd4,
@@ -229,7 +220,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
           <p>4 pairs monitored · OBD engine live</p>
         </div>
         <div className="topbar-actions">
-          <ConnIndicator connected={wsLive && keysOk} exchange={allPairs[0]?.monitorSymbol?.endsWith('USDT') ? 'Bybit' : 'Binance'}/>
+          <ConnIndicator connected={keysOk} exchange={allPairs[0]?.monitorSymbol?.endsWith('USDT') ? 'Bybit' : 'Binance'}/>
           <div className="seg">
             <button className={viewMode === 'grid' ? 'active' : ''} onClick={() => setViewMode('grid')}>2×2</button>
             <button className={viewMode === 'single' ? 'active' : ''} onClick={() => setViewMode('single')}>Focus</button>
