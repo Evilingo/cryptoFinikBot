@@ -8,9 +8,9 @@ import { getKlines, getMidPrice, placeOrder, getAccountBalance } from '../exchan
 // In-memory store: symbol -> { current, previous, history[] }
 const obdState = new Map();
 
-// Deduplicate: no signal for same pair within 15 min
+// Deduplicate: no signal for same pair within 90 min
 const lastSignalTime = new Map();
-const SIGNAL_COOLDOWN = 15 * 60 * 1000;
+const SIGNAL_COOLDOWN = 90 * 60 * 1000;
 
 // OBD snapshot recording: save every 30s per symbol
 const lastSnapshotTime = new Map();
@@ -291,33 +291,77 @@ async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
   ).catch(() => {});
 }
 
-// Pure synchronous version — used by backtester (no DB/async)
-export function detectSignalFromHistory(history, threshold = 10) {
+// OBD3/OBD4 are structural indicators — require 2× relative threshold
+const OBD_MULTIPLIERS = { obd1: 1, obd2: 1, obd3: 2, obd4: 2 };
+const OBD_KEYS = ['obd1', 'obd2', 'obd3', 'obd4'];
+
+/**
+ * Detect trend structure from price series using local extrema (lookaround=2).
+ * Returns 'UP', 'DOWN', or 'NEUTRAL'.
+ */
+function detectTrendStructure(prices) {
+  if (prices.length < 10) return 'NEUTRAL';
+  const lows = [];
+  const highs = [];
+  for (let i = 2; i < prices.length - 2; i++) {
+    const p = prices[i];
+    if (p <= prices[i - 1] && p <= prices[i - 2] && p <= prices[i + 1] && p <= prices[i + 2]) lows.push(p);
+    if (p >= prices[i - 1] && p >= prices[i - 2] && p >= prices[i + 1] && p >= prices[i + 2]) highs.push(p);
+  }
+  const recentLows  = lows.slice(-4);
+  const recentHighs = highs.slice(-4);
+  const isUptrend   = recentLows.length  >= 2 && recentLows.every((v, i)  => i === 0 || v > recentLows[i - 1]);
+  const isDowntrend = recentHighs.length >= 2 && recentHighs.every((v, i) => i === 0 || v < recentHighs[i - 1]);
+  if (isUptrend && !isDowntrend)  return 'UP';
+  if (isDowntrend && !isUptrend)  return 'DOWN';
+  return 'NEUTRAL';
+}
+
+/**
+ * Pure synchronous version — used by backtester (no DB/async).
+ * thresholdPct: relative dip/spike size in % (default 10%).
+ *   OBD1/OBD2 require ≥ thresholdPct%, OBD3/OBD4 require ≥ 2×thresholdPct%.
+ * trendContext: optional snapshot array (with midPrice) for trend structure gate.
+ *   LONG only allowed when trend = 'UP', SHORT only when trend = 'DOWN'.
+ *   Pass null to disable the filter (legacy behaviour).
+ */
+export function detectSignalFromHistory(history, thresholdPct = 10, trendContext = null) {
   if (history.length < 24) return null;
   const current = history[history.length - 1];
   const recent = history.slice(-12);
   const beforeWindow = history.slice(-24, -12);
   if (beforeWindow.length < 3) return null;
 
-  const OBD_KEYS = ['obd1', 'obd2', 'obd3', 'obd4'];
+  // Trend structure gate
+  let trend = 'NEUTRAL';
+  if (trendContext && trendContext.length >= 10) {
+    trend = detectTrendStructure(trendContext.map((s) => s.midPrice));
+    if (trend === 'NEUTRAL') return null;
+  }
 
-  const recentMins = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
+  const recentMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
   const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
-  const allDipped = OBD_KEYS.every((k) => beforeMaxes[k] - recentMins[k] > threshold);
+  const allDipped = OBD_KEYS.every((k) => {
+    if (beforeMaxes[k] <= 0) return false;
+    return (beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] >= (thresholdPct * OBD_MULTIPLIERS[k]) / 100;
+  });
   const allRecovering = OBD_KEYS.every((k) => current[k] > recentMins[k] + 2);
-  if (allDipped && allRecovering) return 'LONG';
+  if (allDipped && allRecovering && (trendContext === null || trend === 'UP')) return 'LONG';
 
   const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
-  const beforeMins = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
-  const allSpiked = OBD_KEYS.every((k) => recentMaxes[k] - beforeMins[k] > threshold);
+  const beforeMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
+  const allSpiked = OBD_KEYS.every((k) => {
+    if (recentMaxes[k] <= 0) return false;
+    return (recentMaxes[k] - beforeMins[k]) / recentMaxes[k] >= (thresholdPct * OBD_MULTIPLIERS[k]) / 100;
+  });
   const allFalling = OBD_KEYS.every((k) => current[k] < recentMaxes[k] - 2);
-  if (allSpiked && allFalling) return 'SHORT';
+  if (allSpiked && allFalling && (trendContext === null || trend === 'DOWN')) return 'SHORT';
 
   return null;
 }
 
 async function detectSignal(state) {
-  const threshold = await getDipThreshold();
+  const thresholdPct = await getDipThreshold();
 
   const { current, history } = state;
   if (history.length < 3) return null;
@@ -326,25 +370,31 @@ async function detectSignal(state) {
   const beforeWindow = history.slice(-24, -12);
   if (beforeWindow.length < 3) return null;
 
-  const OBD_KEYS = ['obd1', 'obd2', 'obd3', 'obd4'];
+  // Trend structure gate using full in-memory history
+  const trend = history.length >= 10
+    ? detectTrendStructure(history.map((s) => s.midPrice))
+    : 'NEUTRAL';
+  if (trend === 'NEUTRAL') return null;
 
   // --- LONG: все OBD просели и начали отскок ---
-  const recentMins = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
+  const recentMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
   const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
-
-  const allDipped = OBD_KEYS.every((k) => beforeMaxes[k] - recentMins[k] > threshold);
+  const allDipped = OBD_KEYS.every((k) => {
+    if (beforeMaxes[k] <= 0) return false;
+    return (beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] >= (thresholdPct * OBD_MULTIPLIERS[k]) / 100;
+  });
   const allRecovering = OBD_KEYS.every((k) => current[k] > recentMins[k] + 2);
-
-  if (allDipped && allRecovering) return 'LONG';
+  if (allDipped && allRecovering && trend === 'UP') return 'LONG';
 
   // --- SHORT: все OBD выросли и начали откат ---
   const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
-  const beforeMins = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
-
-  const allSpiked = OBD_KEYS.every((k) => recentMaxes[k] - beforeMins[k] > threshold);
+  const beforeMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
+  const allSpiked = OBD_KEYS.every((k) => {
+    if (recentMaxes[k] <= 0) return false;
+    return (recentMaxes[k] - beforeMins[k]) / recentMaxes[k] >= (thresholdPct * OBD_MULTIPLIERS[k]) / 100;
+  });
   const allFalling = OBD_KEYS.every((k) => current[k] < recentMaxes[k] - 2);
-
-  if (allSpiked && allFalling) return 'SHORT';
+  if (allSpiked && allFalling && trend === 'DOWN') return 'SHORT';
 
   return null;
 }

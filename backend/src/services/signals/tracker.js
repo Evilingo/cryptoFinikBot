@@ -194,15 +194,16 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
   if (snapshots.length < 24) return { signals: [], stats: null, snapshotCount: snapshots.length };
 
   const { detectSignalFromHistory } = await import('../indicators/engine.js');
-  const COOLDOWN = 15 * 60 * 1000;
+  const COOLDOWN = 90 * 60 * 1000;
   const TIMEOUT = 60 * 60 * 1000; // 1h
 
   const signals = [];
   let lastSignalAt = 0;
 
   for (let i = 24; i < snapshots.length; i++) {
-    const history = snapshots.slice(Math.max(0, i - 24), i + 1);
-    const detectedDir = detectSignalFromHistory(history, threshold);
+    const obdWindow   = snapshots.slice(Math.max(0, i - 24), i + 1);
+    const trendWindow = snapshots.slice(Math.max(0, i - 120), i + 1);
+    const detectedDir = detectSignalFromHistory(obdWindow, threshold, trendWindow);
     if (!detectedDir) continue;
     if (directionFilter && detectedDir !== directionFilter) continue;
 
@@ -298,7 +299,7 @@ export async function runOptimize({ pairIds = null, from, to, directionFilter = 
   const THRESHOLDS = [5, 8, 10, 12, 15, 20];
   const SL_PCTS   = [0.3, 0.5, 0.7, 1.0];
   const TP_PCTS   = [1.0, 1.5, 2.0, 3.0];
-  const COOLDOWN  = 15 * 60 * 1000;
+  const COOLDOWN  = 90 * 60 * 1000;
   const TIMEOUT   = 60 * 60 * 1000;
 
   const pairFilter = pairIds?.length
@@ -324,8 +325,9 @@ export async function runOptimize({ pairIds = null, from, to, directionFilter = 
       let lastSignalAt = 0;
 
       for (let i = 24; i < snapshots.length; i++) {
-        const history = snapshots.slice(Math.max(0, i - 24), i + 1);
-        const direction = detectSignalFromHistory(history, threshold);
+        const obdWindow   = snapshots.slice(Math.max(0, i - 24), i + 1);
+        const trendWindow = snapshots.slice(Math.max(0, i - 120), i + 1);
+        const direction = detectSignalFromHistory(obdWindow, threshold, trendWindow);
         if (!direction) continue;
         if (directionFilter && direction !== directionFilter) continue;
 
