@@ -35,7 +35,8 @@ export function Sparkchart({ candles, height = 100 }) {
 
   const hi = Math.max(...candles.map(c => c.h));
   const lo = Math.min(...candles.map(c => c.l));
-  const range = hi - lo || 1;
+  // Use a small relative range for flat data so the line renders in the middle, not the bottom
+  const range = hi - lo || hi * 0.002 || 1;
   const pad = 6;
   const chartH = h - pad * 2;
   const y = v => pad + chartH - ((v - lo) / range) * chartH;

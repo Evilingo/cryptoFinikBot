@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
@@ -10,6 +10,7 @@ import Stats from './pages/Stats';
 import Sidebar from './components/layout/Sidebar';
 import SignalModal from './components/SignalModal';
 import LiveSignalBanner from './components/LiveSignalBanner';
+import { Icon } from './components/primitives';
 
 function AdminRoute({ children }) {
   const { authenticated, loading } = useAuth();
@@ -51,6 +52,8 @@ export default function App() {
 }
 
 function AppLayout({ activeSignal, setActiveSignal, liveBanner, setLiveBanner }) {
+  const { authenticated } = useAuth();
+
   return (
     <div className="app">
       <Sidebar />
@@ -72,6 +75,14 @@ function AppLayout({ activeSignal, setActiveSignal, liveBanner, setLiveBanner })
           </Routes>
         </ErrorBoundary>
       </main>
+
+      {/* Mobile bottom nav — hidden on desktop via CSS */}
+      <nav className="mobile-nav">
+        <NavLink to="/" end className={({ isActive }) => isActive ? 'active' : ''}><Icon name="dashboard" size={20}/>Dashboard</NavLink>
+        <NavLink to="/signals" className={({ isActive }) => isActive ? 'active' : ''}><Icon name="signal" size={20}/>Signals</NavLink>
+        <NavLink to="/stats" className={({ isActive }) => isActive ? 'active' : ''}><Icon name="stats" size={20}/>Stats</NavLink>
+        {authenticated && <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}><Icon name="settings" size={20}/>Settings</NavLink>}
+      </nav>
 
       {activeSignal && (
         <SignalModal
