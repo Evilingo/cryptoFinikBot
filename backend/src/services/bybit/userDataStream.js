@@ -40,14 +40,43 @@ async function getKeys() {
 }
 
 async function handleOrderFill(order) {
-  const { symbol, orderStatus, avgPrice, stopOrderType, side } = order;
+  const { symbol, orderStatus, avgPrice, stopOrderType, side, orderId, orderLinkId } = order;
 
-  // Only process TP/SL fills that close positions
   if (orderStatus !== 'Filled') return;
-  if (!['TakeProfit', 'StopLoss'].includes(stopOrderType)) return;
 
-  const exitPrice = parseFloat(avgPrice);
-  logger.info('Bybit order fill: TP/SL exit', { symbol, stopOrderType, exitPrice });
+  const filledPrice = parseFloat(avgPrice);
+  const isExitOrder = ['TakeProfit', 'StopLoss'].includes(stopOrderType);
+
+  if (!isExitOrder) {
+    // Entry order filled — update Trade record with confirmed fill price
+    // Match by binanceOrderId (stores Bybit orderId) or by symbol+status+side
+    const trade = await prisma.trade.findFirst({
+      where: {
+        OR: [
+          { binanceOrderId: orderId },
+          { binanceOrderId: orderLinkId },
+        ],
+        status: 'OPEN',
+      },
+    });
+
+    if (trade && filledPrice > 0 && trade.price === 0) {
+      // Price was 0 due to race condition — update with confirmed fill price
+      await prisma.trade.update({
+        where: { id: trade.id },
+        data: { price: filledPrice },
+      });
+      logger.info('Bybit entry fill confirmed, updated trade price', { symbol, orderId, filledPrice });
+    } else if (trade) {
+      logger.info('Bybit entry fill confirmed', { symbol, orderId, filledPrice, existingPrice: trade.price });
+    }
+    return;
+  }
+
+  // TP/SL exit order filled — close the trade
+  logger.info('Bybit order fill: TP/SL exit', { symbol, stopOrderType, exitPrice: filledPrice });
+
+  const exitPrice = filledPrice;
 
   const trade = await prisma.trade.findFirst({
     where: { symbol, status: 'OPEN' },

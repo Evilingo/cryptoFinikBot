@@ -147,13 +147,37 @@ export default function Settings() {
     setBybitStatus({ ok: null, msg: 'Testing connection…' });
     try {
       const { data } = await api.get('/balance/test-bybit');
-      if (!Array.isArray(data) || data.length === 0) {
-        setBybitStatus({ ok: true, msg: 'Connected · No assets found (check account type or IP whitelist)' });
-      } else {
-        const lines = data.map(b => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
-        setBybitStatus({ ok: true, msg: `Connected · ${lines}` });
+
+      const perms = data.permissions;
+      const balances = data.balances || [];
+
+      // Build permission line
+      let permLine = '';
+      if (perms && !perms.error) {
+        if (perms.readOnly) {
+          permLine = ' · ⚠ Read-only key — trading disabled';
+        } else if (perms.canTrade) {
+          permLine = ' · Trade ✓';
+        } else {
+          permLine = ' · ⚠ No SpotTrade permission — orders will fail';
+        }
+      } else if (perms?.error) {
+        permLine = ` · Permissions check failed: ${perms.error}`;
       }
-      setTimeout(() => setBybitStatus(null), 8000);
+
+      // Build balance line
+      let balLine = '';
+      if (balances.length === 0) {
+        balLine = 'No assets found';
+      } else {
+        balLine = balances.map(b => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
+      }
+
+      const ok = !perms?.error && (perms?.canTrade || false);
+      // If we got balances but no trade permission, show as warning (partial success)
+      const status = perms?.readOnly || (!perms?.canTrade && !perms?.error) ? null : true;
+      setBybitStatus({ ok: ok ? true : (perms ? null : true), msg: `${balLine}${permLine}` });
+      setTimeout(() => setBybitStatus(null), 12000);
     } catch (err) {
       setBybitStatus({ ok: false, msg: err.response?.data?.error || err.message });
     }
