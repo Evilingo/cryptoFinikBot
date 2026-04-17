@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { Logo } from '../components/primitives';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -27,51 +28,83 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-dark-900">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm bg-dark-800 rounded-2xl p-8 border border-dark-600 shadow-2xl"
-      >
-        <h1 className="text-2xl font-bold text-center mb-2">BestTrader</h1>
-        <p className="text-gray-500 text-center text-sm mb-8">Crypto Trading Dashboard</p>
-
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg p-3 mb-4">
-            {error}
+    <div className="login-screen">
+      <div className="login-brand">
+        <Logo size={44}/>
+        <div>
+          <div className="login-hero">
+            Trading signals <em>so sweet</em>, you'll forget the chart.
           </div>
-        )}
+          <div className="login-features">
+            <div className="login-feature"><span className="login-feature-dot"/> 4-level OBD analysis · 100ms WebSocket</div>
+            <div className="login-feature"><span className="login-feature-dot"/> Claude confirms every signal with SL/TP</div>
+            <div className="login-feature"><span className="login-feature-dot"/> Auto-trading + Telegram notifications</div>
+            <div className="login-feature"><span className="login-feature-dot"/> Backtest on real accumulated data</div>
+          </div>
+        </div>
+        <div style={{display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-4)', fontFamily: 'var(--font-mono)'}}>
+          <span>v2.3.1</span>
+          <span>·</span>
+          <span>binance · bybit</span>
+          <span>·</span>
+          <span>claude-sonnet-4</span>
+        </div>
+      </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Username</label>
+      <div className="login-form-col">
+        <form className="login-form" onSubmit={handleSubmit}>
+          <h2>Welcome back</h2>
+          <p>Sign in to your Finik account</p>
+
+          {error && (
+            <div style={{
+              background: 'color-mix(in srgb, var(--short) 12%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--short) 30%, transparent)',
+              color: 'var(--short)',
+              borderRadius: 'var(--radius)',
+              padding: '10px 14px',
+              fontSize: 13,
+              marginBottom: 16,
+            }}>
+              {error}
+            </div>
+          )}
+
+          <div className="field" style={{marginBottom: 14}}>
+            <label className="label">Username</label>
             <input
-              type="text"
+              className="input"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full"
               autoFocus
               required
             />
           </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Password</label>
+          <div className="field" style={{marginBottom: 14}}>
+            <label className="label">Password</label>
             <input
+              className="input"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full"
               required
             />
+          </div>
+          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, fontSize: 12}}>
+            <label style={{display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)'}}>
+              <input type="checkbox" defaultChecked/> Remember me
+            </label>
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-accent-blue hover:bg-blue-600 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg"
+            className="submit-btn buy"
+            style={{background: 'var(--primary)', opacity: loading ? 0.6 : 1}}
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
   );
 }

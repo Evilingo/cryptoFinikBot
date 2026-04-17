@@ -1,75 +1,84 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { Logo, Icon } from '../primitives';
 
-const publicLinks = [
-  { to: '/', label: 'Dashboard', icon: '📊' },
-  { to: '/signals', label: 'Signals', icon: '📡' },
-  { to: '/stats', label: 'Accuracy', icon: '🎯' },
+const NAV_LINKS = [
+  { to: '/', label: 'Dashboard', icon: 'dashboard', end: true },
+  { to: '/signals', label: 'Signals', icon: 'signal' },
+  { to: '/stats', label: 'Performance', icon: 'stats' },
 ];
 
 export default function Sidebar() {
-  const { authenticated, logout } = useAuth();
+  const { authenticated, logout, user } = useAuth();
   const navigate = useNavigate();
 
-  return (
-    <aside className="w-56 bg-dark-800 border-r border-dark-600 flex flex-col p-4">
-      <div className="text-xl font-bold mb-8 px-2">
-        <span className="text-accent-blue">Best</span>Trader
-      </div>
+  const username = user?.username || user?.name || 'Admin';
+  const avatarLetter = username[0]?.toUpperCase() || 'A';
 
-      <nav className="flex-1 space-y-1">
-        {publicLinks.map((link) => (
+  return (
+    <aside className="sidebar">
+      <Logo />
+
+      <nav className="nav">
+        {NAV_LINKS.map((link) => (
           <NavLink
             key={link.to}
             to={link.to}
-            end={link.to === '/'}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-accent-blue/10 text-accent-blue'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-dark-700'
-              }`
-            }
+            end={link.end}
+            className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
           >
-            <span>{link.icon}</span>
-            {link.label}
+            <Icon name={link.icon} size={18} />
+            <span>{link.label}</span>
           </NavLink>
         ))}
 
         {authenticated && (
           <NavLink
             to="/settings"
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-accent-blue/10 text-accent-blue'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-dark-700'
-              }`
-            }
+            className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
           >
-            <span>⚙️</span>
-            Settings
+            <Icon name="settings" size={18} />
+            <span>Settings</span>
           </NavLink>
         )}
       </nav>
 
-      {authenticated ? (
-        <button
-          onClick={logout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-500 hover:text-red-400 hover:bg-dark-700 transition-colors"
-        >
-          <span>🚪</span>
-          Logout
-        </button>
-      ) : (
-        <button
-          onClick={() => navigate('/login')}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-500 hover:text-accent-blue hover:bg-dark-700 transition-colors"
-        >
-          <span>🔑</span>
-          Login
-        </button>
-      )}
+      <div style={{margin: '4px 8px', padding: '12px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)'}}>
+        <div style={{fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, marginBottom: 6}}>AI Engine</div>
+        <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6}}>
+          <span className="pulse-dot" style={{width: 8, height: 8}}/>
+          <span style={{fontSize: 13, fontWeight: 500}}>Claude Sonnet</span>
+        </div>
+        <div style={{fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)'}}>avg 12.4s · 94% uptime</div>
+      </div>
+
+      <div className="sidebar-footer">
+        <div className="account-card">
+          <div className="avatar">{avatarLetter}</div>
+          <div style={{minWidth: 0, flex: 1}}>
+            <div className="account-name">{username}</div>
+            <div className="account-role">{authenticated ? 'Admin · API connected' : 'Guest'}</div>
+          </div>
+        </div>
+
+        {authenticated ? (
+          <button
+            className="nav-item"
+            onClick={logout}
+            style={{color: 'var(--text-3)', marginTop: 4}}
+          >
+            <Icon name="logout" size={16}/> Logout
+          </button>
+        ) : (
+          <button
+            className="nav-item"
+            onClick={() => navigate('/login')}
+            style={{color: 'var(--text-3)', marginTop: 4}}
+          >
+            <Icon name="key" size={16}/> Login
+          </button>
+        )}
+      </div>
     </aside>
   );
 }

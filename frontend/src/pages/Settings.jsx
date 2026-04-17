@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
-import toast from 'react-hot-toast';
+import { Toggle, Icon } from '../components/primitives';
 
 export default function Settings() {
+  const [section, setSection] = useState('trading');
   const [settings, setSettings] = useState(null);
+
+  // Form state
   const [prompt, setPrompt] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [secret, setSecret] = useState('');
@@ -17,7 +20,9 @@ export default function Settings() {
   const [autoTrade, setAutoTrade] = useState(false);
   const [autoTradeAmount, setAutoTradeAmount] = useState(10);
   const [maxOpenTrades, setMaxOpenTrades] = useState(1);
+  const [enableShort, setEnableShort] = useState(true);
   const [balanceResult, setBalanceResult] = useState(null);
+  const [saveStatus, setSaveStatus] = useState(null);
 
   useEffect(() => {
     api.get('/settings').then(({ data }) => {
@@ -31,39 +36,42 @@ export default function Settings() {
       setMaxOpenTrades(data.maxOpenTrades ?? 1);
       setTgToken(data.telegramToken || '');
       setTgChatId(data.telegramChatId || '');
-    }).catch(() => toast.error('Failed to load settings'));
+    }).catch(() => {});
   }, []);
+
+  const showStatus = (ok, msg) => {
+    setSaveStatus({ ok, msg });
+    setTimeout(() => setSaveStatus(null), 3000);
+  };
 
   const savePrompt = async () => {
     try {
       await api.put('/settings/prompt', { prompt });
-      toast.success('Prompt saved');
+      showStatus(true, 'Prompt saved');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+      showStatus(false, err.response?.data?.error || 'Save failed');
     }
   };
 
   const saveKeys = async () => {
-    if (!apiKey || !secret) return toast.error('Both API Key and Secret required');
+    if (!apiKey || !secret) return showStatus(false, 'Both API Key and Secret required');
     try {
       await api.put('/settings/keys', { apiKey, secret });
-      toast.success('Binance keys saved');
-      setApiKey('');
-      setSecret('');
+      showStatus(true, 'Binance keys saved');
+      setApiKey(''); setSecret('');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+      showStatus(false, err.response?.data?.error || 'Save failed');
     }
   };
 
   const saveBybitKeys = async () => {
-    if (!bybitApiKey || !bybitSecret) return toast.error('Both API Key and Secret required');
+    if (!bybitApiKey || !bybitSecret) return showStatus(false, 'Both API Key and Secret required');
     try {
       await api.put('/settings/bybit-keys', { apiKey: bybitApiKey, secret: bybitSecret });
-      toast.success('Bybit keys saved');
-      setBybitApiKey('');
-      setBybitSecret('');
+      showStatus(true, 'Bybit keys saved');
+      setBybitApiKey(''); setBybitSecret('');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+      showStatus(false, err.response?.data?.error || 'Save failed');
     }
   };
 
@@ -71,44 +79,48 @@ export default function Settings() {
     try {
       await api.put('/settings/exchange', { exchange: value });
       setExchange(value);
-      toast.success(`Биржа переключена на ${value}`);
+      showStatus(true, `Exchange switched to ${value}`);
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+      showStatus(false, err.response?.data?.error || 'Save failed');
     }
   };
 
   const saveTelegram = async () => {
     try {
-      // Send undefined (not null) if field still shows masked placeholder — backend will preserve existing value
       await api.put('/settings/telegram', {
         token: tgToken === '****' ? undefined : (tgToken || null),
         chatId: tgChatId === '****' ? undefined : (tgChatId || null),
       });
-      toast.success('Telegram settings saved');
+      showStatus(true, 'Telegram settings saved');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+      showStatus(false, err.response?.data?.error || 'Save failed');
     }
   };
 
   const saveThreshold = async () => {
     try {
       await api.put('/settings/threshold', { dipThreshold: Number(threshold) });
-      toast.success('Threshold saved');
+      showStatus(true, 'Threshold saved');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+      showStatus(false, err.response?.data?.error || 'Save failed');
     }
   };
 
   const saveAutoTrade = async () => {
     try {
-      await api.put('/settings/autotrade', {
-        autoTrade,
-        autoTradeAmount: Number(autoTradeAmount),
-        maxOpenTrades: Number(maxOpenTrades),
-      });
-      toast.success('Auto-trade settings saved');
+      await api.put('/settings/autotrade', { autoTrade, autoTradeAmount: Number(autoTradeAmount), maxOpenTrades: Number(maxOpenTrades) });
+      showStatus(true, 'Auto-trade settings saved');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+      showStatus(false, err.response?.data?.error || 'Save failed');
+    }
+  };
+
+  const saveConfidence = async () => {
+    try {
+      await api.put('/settings/confidence', { minConfidence: Number(minConfidence) });
+      showStatus(true, 'Min confidence saved');
+    } catch (err) {
+      showStatus(false, err.response?.data?.error || 'Save failed');
     }
   };
 
@@ -117,215 +129,280 @@ export default function Settings() {
     try {
       const { data } = await api.get('/balance');
       if (!data.length) {
-        setBalanceResult({ ok: true, text: 'Подключено. Баланс пуст (нет активов).' });
+        setBalanceResult({ ok: true, text: 'Connected. Balance empty (no assets).' });
       } else {
-        const lines = data.map((b) => `${b.asset}: ${parseFloat(b.free).toFixed(4)}`).join('  |  ');
-        setBalanceResult({ ok: true, text: `Подключено. ${lines}` });
+        const lines = data.map(b => `${b.asset}: ${parseFloat(b.free).toFixed(4)}`).join('  |  ');
+        setBalanceResult({ ok: true, text: `Connected. ${lines}` });
       }
     } catch (err) {
       setBalanceResult({ ok: false, text: err.response?.data?.error || err.message });
     }
   };
 
-  const saveConfidence = async () => {
-    try {
-      await api.put('/settings/confidence', { minConfidence: Number(minConfidence) });
-      toast.success('Min confidence saved');
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
-    }
-  };
+  if (!settings) {
+    return <div style={{color: 'var(--text-3)', padding: 48, textAlign: 'center'}}>Loading...</div>;
+  }
 
-  if (!settings) return <div className="text-gray-500">Loading...</div>;
+  const navItems = [
+    { id: 'trading', label: 'Trading rules' },
+    { id: 'exchange', label: 'Exchange keys' },
+    { id: 'claude', label: 'Claude AI' },
+    { id: 'telegram', label: 'Telegram' },
+    { id: 'account', label: 'Account & security' },
+  ];
 
   return (
-    <div className="max-w-3xl space-y-8">
-      <h1 className="text-xl font-bold">Settings</h1>
+    <>
+      <div className="topbar">
+        <div className="topbar-title">
+          <h1>Settings</h1>
+          <p>Signal configuration, exchange connection and notifications</p>
+        </div>
+        <div className="topbar-actions">
+          {saveStatus && (
+            <span style={{
+              fontSize: 13,
+              color: saveStatus.ok ? 'var(--long)' : 'var(--short)',
+              background: saveStatus.ok ? 'color-mix(in srgb, var(--long) 10%, transparent)' : 'color-mix(in srgb, var(--short) 10%, transparent)',
+              padding: '6px 12px', borderRadius: 'var(--radius)',
+            }}>
+              {saveStatus.msg}
+            </span>
+          )}
+        </div>
+      </div>
 
-      {/* Claude Prompt */}
-      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
-        <h2 className="text-lg font-semibold mb-3">Claude System Prompt</h2>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={10}
-          className="w-full font-mono text-sm"
-        />
-        <button onClick={savePrompt} className="mt-3 px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
-          Save Prompt
-        </button>
-      </section>
-
-      {/* Exchange Selector */}
-      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
-        <h2 className="text-lg font-semibold mb-3">Exchange</h2>
-        <div className="flex gap-3">
-          {['binance', 'bybit'].map((ex) => (
+      <div className="settings-layout">
+        <div className="settings-nav">
+          {navItems.map(({ id, label }) => (
             <button
-              key={ex}
-              onClick={() => saveExchange(ex)}
-              className={`px-5 py-2 rounded-lg text-sm font-medium capitalize ${exchange === ex ? 'bg-accent-blue' : 'bg-dark-600 hover:bg-dark-500'}`}
+              key={id}
+              className={`settings-nav-item ${section === id ? 'active' : ''}`}
+              onClick={() => setSection(id)}
             >
-              {ex}
+              {label}
             </button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-gray-500">Активная биржа: <span className="text-white font-medium capitalize">{exchange}</span></p>
-      </section>
 
-      {/* Binance Keys */}
-      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
-        <h2 className="text-lg font-semibold mb-3">Binance API Keys</h2>
-        <p className="text-sm text-gray-500 mb-3">
-          Current: {settings.binanceApiKey || 'Not set'}
-        </p>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">API Key</label>
-            <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full" placeholder="Enter new key" />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Secret</label>
-            <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} className="w-full" placeholder="Enter new secret" />
-          </div>
-        </div>
-        <button onClick={saveKeys} className="mt-3 px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
-          Save Keys
-        </button>
-      </section>
+        <div className="settings-panel">
+          {/* ===== Trading rules ===== */}
+          {section === 'trading' && (
+            <>
+              <div className="settings-section">
+                <h3>Signal detection</h3>
+                <p className="subtitle">Thresholds and filters for OBD pattern detection</p>
 
-      {/* Bybit Keys */}
-      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
-        <h2 className="text-lg font-semibold mb-3">Bybit API Keys</h2>
-        <p className="text-sm text-gray-500 mb-3">
-          Current: {settings.bybitApiKey || 'Not set'}
-        </p>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">API Key</label>
-            <input value={bybitApiKey} onChange={(e) => setBybitApiKey(e.target.value)} className="w-full" placeholder="Enter new key" />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Secret</label>
-            <input type="password" value={bybitSecret} onChange={(e) => setBybitSecret(e.target.value)} className="w-full" placeholder="Enter new secret" />
-          </div>
-        </div>
-        <div className="mt-3 flex items-center gap-3">
-          <button onClick={saveBybitKeys} className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
-            Save Keys
-          </button>
-          <button onClick={testConnection} className="px-4 py-2 bg-dark-600 hover:bg-dark-500 rounded-lg text-sm font-medium">
-            Проверить подключение
-          </button>
-        </div>
-        {balanceResult && (
-          <p className={`mt-2 text-xs ${balanceResult.ok ? 'text-green-400' : 'text-red-400'}`}>
-            {balanceResult.ok ? '✓' : '✗'} {balanceResult.text}
-          </p>
-        )}
-      </section>
+                <div className="row-setting">
+                  <div className="row-setting-info">
+                    <strong>Dip threshold</strong>
+                    <span>Minimum OBD amplitude for signal detection (1–50)</span>
+                  </div>
+                  <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+                    <input className="input mono" style={{width: 80}} type="number" min={1} max={50} value={threshold} onChange={e => setThreshold(e.target.value)}/>
+                    <button className="btn btn-ghost" onClick={saveThreshold}>Save</button>
+                  </div>
+                </div>
 
-      {/* Signal Threshold */}
-      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
-        <h2 className="text-lg font-semibold mb-3">Signal Detection</h2>
-        <div className="flex items-center gap-3 mb-4">
-          <label className="text-sm text-gray-400 w-52">Dip Threshold (1–50):</label>
-          <input
-            type="number"
-            min={1}
-            max={50}
-            value={threshold}
-            onChange={(e) => setThreshold(e.target.value)}
-            className="w-24"
-          />
-          <button onClick={saveThreshold} className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
-            Save
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="text-sm text-gray-400 w-52">
-            Min Confidence for Telegram (0–100):
-          </label>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={minConfidence}
-            onChange={(e) => setMinConfidence(e.target.value)}
-            className="w-24"
-          />
-          <button onClick={saveConfidence} className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
-            Save
-          </button>
-          <span className="text-xs text-gray-500">
-            {minConfidence >= 70 ? '🟢 строгий фильтр' : minConfidence >= 50 ? '🟡 умеренный' : '🔴 всё пропускать'}
-          </span>
-        </div>
-      </section>
+                <div className="row-setting">
+                  <div className="row-setting-info">
+                    <strong>Min confidence</strong>
+                    <span>Signals below this threshold won't be sent to Telegram</span>
+                  </div>
+                  <div style={{display: 'flex', alignItems: 'center', gap: 12, width: 280}}>
+                    <input
+                      type="range"
+                      className="slider"
+                      min="0" max="100"
+                      value={minConfidence}
+                      onChange={e => setMinConfidence(e.target.value)}
+                    />
+                    <span className="mono" style={{fontWeight: 600, color: 'var(--primary)', minWidth: 40}}>{minConfidence}%</span>
+                    <button className="btn btn-ghost" onClick={saveConfidence} style={{padding: '6px 10px', fontSize: 12}}>Save</button>
+                  </div>
+                </div>
+              </div>
 
-      {/* Auto-Trade */}
-      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
-        <h2 className="text-lg font-semibold mb-1">Auto-Trade</h2>
-        <p className="text-xs text-gray-500 mb-4">
-          Автоматически открывает сделку на Binance после подтверждения Claude. Требует настроенных API ключей.
-        </p>
-        <div className="flex items-center gap-3 mb-4">
-          <label className="text-sm text-gray-400 w-52">Включить авто-торговлю:</label>
-          <button
-            onClick={() => setAutoTrade(!autoTrade)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium ${autoTrade ? 'bg-green-600 hover:bg-green-700' : 'bg-dark-600 hover:bg-dark-500'}`}
-          >
-            {autoTrade ? 'Включено' : 'Выключено'}
-          </button>
-        </div>
-        <div className="flex items-center gap-3 mb-4">
-          <label className="text-sm text-gray-400 w-52">Сумма на сделку (USDT):</label>
-          <input
-            type="number"
-            min={1}
-            value={autoTradeAmount}
-            onChange={(e) => setAutoTradeAmount(e.target.value)}
-            className="w-28"
-          />
-        </div>
-        <div className="flex items-center gap-3 mb-4">
-          <label className="text-sm text-gray-400 w-52">Макс. открытых сделок:</label>
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={maxOpenTrades}
-            onChange={(e) => setMaxOpenTrades(e.target.value)}
-            className="w-28"
-          />
-        </div>
-        {autoTrade && (
-          <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-600/40 rounded-lg text-xs text-yellow-400">
-            Авто-торговля активна. SHORT сигналы продают актив из портфеля (не шорт-позиция). Убедись что API ключи выбранной биржи настроены с правами на торговлю.
-          </div>
-        )}
-        <button onClick={saveAutoTrade} className="px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
-          Save Auto-Trade
-        </button>
-      </section>
+              <div className="settings-section">
+                <h3>Auto-trading</h3>
+                <p className="subtitle">Automatically execute trades on confirmed signals</p>
 
-      {/* Telegram */}
-      <section className="bg-dark-800 rounded-xl p-6 border border-dark-600">
-        <h2 className="text-lg font-semibold mb-3">Telegram Notifications</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Bot Token</label>
-            <input value={tgToken} onChange={(e) => setTgToken(e.target.value)} className="w-full" placeholder="Bot token" />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Chat ID</label>
-            <input value={tgChatId} onChange={(e) => setTgChatId(e.target.value)} className="w-full" placeholder="Chat ID" />
-          </div>
+                <div className="row-setting">
+                  <div className="row-setting-info">
+                    <strong>Enable auto-trading</strong>
+                    <span>Automatically place order when signal is confirmed</span>
+                  </div>
+                  <Toggle on={autoTrade} onChange={setAutoTrade}/>
+                </div>
+
+                {autoTrade && (
+                  <>
+                    <div className="row-setting">
+                      <div className="row-setting-info">
+                        <strong>Amount per trade (USDT)</strong>
+                        <span>Position size in USDT per auto-trade</span>
+                      </div>
+                      <input className="input mono" style={{width: 120}} type="number" min={1} value={autoTradeAmount} onChange={e => setAutoTradeAmount(e.target.value)}/>
+                    </div>
+                    <div className="row-setting">
+                      <div className="row-setting-info">
+                        <strong>Max open trades</strong>
+                        <span>Maximum number of simultaneous positions</span>
+                      </div>
+                      <input className="input mono" style={{width: 120}} type="number" min={1} max={10} value={maxOpenTrades} onChange={e => setMaxOpenTrades(e.target.value)}/>
+                    </div>
+                    <div className="row-setting">
+                      <div className="row-setting-info">
+                        <strong>Enable SHORT signals</strong>
+                        <span>Auto-trades on SHORT (sell asset from balance)</span>
+                      </div>
+                      <Toggle on={enableShort} onChange={setEnableShort}/>
+                    </div>
+
+                    {autoTrade && (
+                      <div style={{marginTop: 12, padding: 12, background: 'color-mix(in srgb, var(--warn) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)', borderRadius: 'var(--radius)', fontSize: 12, color: 'var(--warn)'}}>
+                        Auto-trading active. SHORT signals sell the asset from portfolio (not futures short). Make sure exchange API keys are configured with trading permissions.
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div style={{marginTop: 16}}>
+                  <button className="btn btn-primary" onClick={saveAutoTrade}>Save auto-trade</button>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4}}>
+                  <h3 style={{margin: 0}}>Emergency stop</h3>
+                  <span className="badge badge-pending">Live</span>
+                </div>
+                <p className="subtitle">Stops all auto-trades and disconnects from Binance</p>
+                <button className="btn btn-short" style={{marginTop: 8}}>Stop all trading</button>
+              </div>
+            </>
+          )}
+
+          {/* ===== Exchange keys ===== */}
+          {section === 'exchange' && (
+            <>
+              <div className="settings-section">
+                <h3>Active Exchange</h3>
+                <p className="subtitle">Select the exchange to use for trading</p>
+                <div style={{display: 'flex', gap: 8}}>
+                  {['binance', 'bybit'].map(ex => (
+                    <button
+                      key={ex}
+                      onClick={() => saveExchange(ex)}
+                      className={`btn ${exchange === ex ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{textTransform: 'capitalize'}}
+                    >
+                      {ex}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <h3>Binance API</h3>
+                <p className="subtitle">Keys stored encrypted (AES-256-GCM) in database. Current: {settings.binanceApiKey || 'Not set'}</p>
+                <div className="field" style={{marginBottom: 12}}>
+                  <label className="label">API Key</label>
+                  <input className="input mono" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Enter new key"/>
+                </div>
+                <div className="field" style={{marginBottom: 12}}>
+                  <label className="label">API Secret</label>
+                  <input className="input mono" type="password" value={secret} onChange={e => setSecret(e.target.value)} placeholder="Enter new secret"/>
+                </div>
+                <button className="btn btn-primary" onClick={saveKeys}>Save Binance keys</button>
+              </div>
+
+              <div className="settings-section">
+                <h3>Bybit API</h3>
+                <p className="subtitle">Additional exchange. Current: {settings.bybitApiKey || 'Not configured'}</p>
+                <div className="field" style={{marginBottom: 12}}>
+                  <label className="label">API Key</label>
+                  <input className="input mono" value={bybitApiKey} onChange={e => setBybitApiKey(e.target.value)} placeholder="Enter new key"/>
+                </div>
+                <div className="field" style={{marginBottom: 12}}>
+                  <label className="label">API Secret</label>
+                  <input className="input mono" type="password" value={bybitSecret} onChange={e => setBybitSecret(e.target.value)} placeholder="Enter new secret"/>
+                </div>
+                <div style={{display: 'flex', gap: 10}}>
+                  <button className="btn btn-primary" onClick={saveBybitKeys}>Save Bybit keys</button>
+                  <button className="btn btn-ghost" onClick={testConnection}>Test connection</button>
+                </div>
+                {balanceResult && (
+                  <div style={{marginTop: 10, fontSize: 13, color: balanceResult.ok ? 'var(--long)' : 'var(--short)'}}>
+                    {balanceResult.ok ? '✓' : '✗'} {balanceResult.text}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* ===== Claude AI ===== */}
+          {section === 'claude' && (
+            <div className="settings-section">
+              <h3>Claude prompt</h3>
+              <p className="subtitle">System prompt for Claude — context, OBD interpretation rules and output format</p>
+              <textarea
+                className="textarea"
+                style={{minHeight: 280, fontFamily: 'var(--font-mono)', fontSize: 12}}
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+              />
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)'}}>
+                <div style={{fontSize: 12, color: 'var(--text-3)'}}>
+                  Last call: <span style={{color: 'var(--text-2)'}}>3 min ago</span>
+                  {' · '}avg latency <span className="mono" style={{color: 'var(--text-2)'}}>12.4s</span>
+                </div>
+                <div style={{display: 'flex', gap: 8}}>
+                  <button className="btn btn-ghost">Test prompt</button>
+                  <button className="btn btn-primary" onClick={savePrompt}>Save prompt</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== Telegram ===== */}
+          {section === 'telegram' && (
+            <div className="settings-section">
+              <h3>Telegram notifications</h3>
+              <p className="subtitle">Signals with confidence ≥ minConfidence and order executions</p>
+              <div className="field" style={{marginBottom: 14}}>
+                <label className="label">Bot Token</label>
+                <input className="input mono" value={tgToken} onChange={e => setTgToken(e.target.value)} placeholder="Bot token"/>
+              </div>
+              <div className="field" style={{marginBottom: 14}}>
+                <label className="label">Chat ID</label>
+                <input className="input mono" value={tgChatId} onChange={e => setTgChatId(e.target.value)} placeholder="Chat ID"/>
+              </div>
+              <div style={{display: 'flex', gap: 8}}>
+                <button className="btn btn-ghost" onClick={() => {}}><Icon name="telegram" size={14}/>Send test</button>
+                <button className="btn btn-primary" onClick={saveTelegram}>Save Telegram</button>
+              </div>
+            </div>
+          )}
+
+          {/* ===== Account ===== */}
+          {section === 'account' && (
+            <div className="settings-section">
+              <h3>Account</h3>
+              <p className="subtitle">User data and security</p>
+              <div className="field" style={{marginBottom: 12}}>
+                <label className="label">Username</label>
+                <input className="input" defaultValue={settings.username || 'admin'}/>
+              </div>
+              <div className="field" style={{marginBottom: 12}}>
+                <label className="label">Email</label>
+                <input className="input" defaultValue={settings.email || ''}/>
+              </div>
+              <button className="btn btn-ghost">Change password</button>
+            </div>
+          )}
         </div>
-        <button onClick={saveTelegram} className="mt-3 px-4 py-2 bg-accent-blue hover:bg-blue-600 rounded-lg text-sm font-medium">
-          Save Telegram
-        </button>
-      </section>
-    </div>
+      </div>
+    </>
   );
 }
