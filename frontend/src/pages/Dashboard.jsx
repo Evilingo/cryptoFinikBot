@@ -12,8 +12,6 @@ const PAIRS_CONFIG = [
   { monitorSymbol: 'BNBUSDC', tradeSymbol: 'BNBUSDT', base: 'BNB', basePrice: 420 },
 ];
 
-const MAX_OBD_HISTORY = 720;
-
 export default function Dashboard({ onOpenSignal, onNewSignal }) {
   const [pairs, setPairs] = useState([]);
   const [viewMode, setViewMode] = useState('grid');
@@ -24,10 +22,19 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
   const [slPct, setSlPct] = useState('1.5');
   const [tpPct, setTpPct] = useState('3.0');
   const [selectedPairIdx, setSelectedPairIdx] = useState(0);
+  const [tradeStatus, setTradeStatus] = useState(null); // {ok, msg}
 
   const obdRef = useRef({});
   const [obdData, setObdData] = useState({});
   const candlesRef = useRef({});
+  const deltaRef = useRef({}); // symbol → 1h % change
+  const [deltaData, setDeltaData] = useState({});
+  const klineTimeRef = useRef({}); // symbol → last kline open time
+
+  const showTradeStatus = (ok, msg) => {
+    setTradeStatus({ ok, msg });
+    setTimeout(() => setTradeStatus(null), 3000);
+  };
 
   // Initialize candles with placeholder data
   useEffect(() => {
@@ -45,17 +52,28 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
     api.get('/balance').then(({ data }) => setBalances(data)).catch(() => {});
     api.get('/trade').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {});
 
-    // Fetch klines for each pair
+    // Fetch klines for each pair and compute 1h delta
     PAIRS_CONFIG.forEach(p => {
       api.get(`/klines?symbol=${p.monitorSymbol}&interval=1m&limit=60`)
         .then(({ data }) => {
           if (Array.isArray(data) && data.length) {
-            candlesRef.current[p.monitorSymbol] = data.map(k => ({
+            const candles = data.map(k => ({
+              t: parseInt(k[0]),
               o: parseFloat(k[1]),
               h: parseFloat(k[2]),
               l: parseFloat(k[3]),
               c: parseFloat(k[4]),
             }));
+            candlesRef.current[p.monitorSymbol] = candles.map(({ o, h, l, c }) => ({ o, h, l, c }));
+            // Track last kline open time
+            klineTimeRef.current[p.monitorSymbol] = candles[candles.length - 1]?.t ?? 0;
+            // Compute 1h delta from first open to last close
+            const firstOpen = candles[0]?.o;
+            const lastClose = candles[candles.length - 1]?.c;
+            if (firstOpen && lastClose) {
+              deltaRef.current[p.monitorSymbol] = ((lastClose - firstOpen) / firstOpen) * 100;
+              setDeltaData({ ...deltaRef.current });
+            }
           }
         })
         .catch(() => {});
@@ -83,11 +101,31 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
       const k = msg.kline;
       if (k && candlesRef.current[sym]) {
         const arr = candlesRef.current[sym];
-        const last = arr[arr.length - 1];
-        if (last) {
-          last.c = k.close;
-          last.h = Math.max(last.h, k.high);
-          last.l = Math.min(last.l, k.low);
+        const newCandle = {
+          o: parseFloat(k.o),
+          h: parseFloat(k.h),
+          l: parseFloat(k.l),
+          c: parseFloat(k.c),
+        };
+        // k.x === true means candle is closed — new minute started
+        if (k.x && k.t !== klineTimeRef.current[sym]) {
+          klineTimeRef.current[sym] = k.t;
+          arr.push(newCandle);
+          if (arr.length > 60) arr.shift();
+        } else {
+          // Update the current (last) candle in-place
+          const last = arr[arr.length - 1];
+          if (last) {
+            last.c = newCandle.c;
+            last.h = Math.max(last.h, newCandle.h);
+            last.l = Math.min(last.l, newCandle.l);
+          }
+        }
+        // Update 1h delta based on live close
+        const firstOpen = arr[0]?.o;
+        if (firstOpen) {
+          deltaRef.current[sym] = ((newCandle.c - firstOpen) / firstOpen) * 100;
+          setDeltaData({ ...deltaRef.current });
         }
       }
     }
@@ -111,28 +149,52 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
   const selPair = allPairs[selectedPairIdx] || allPairs[0];
   const selObd = selPair ? obdData[selPair.monitorSymbol] : null;
   const currentPrice = selObd?.midPrice ?? PAIRS_CONFIG[selectedPairIdx]?.basePrice ?? 0;
-  const slPrice = currentPrice * (side === 'BUY' ? (1 - parseFloat(slPct)/100) : (1 + parseFloat(slPct)/100));
-  const tpPrice = currentPrice * (side === 'BUY' ? (1 + parseFloat(tpPct)/100) : (1 - parseFloat(tpPct)/100));
+  const slPrice = currentPrice * (side === 'BUY' ? (1 - parseFloat(slPct) / 100) : (1 + parseFloat(slPct) / 100));
+  const tpPrice = currentPrice * (side === 'BUY' ? (1 + parseFloat(tpPct) / 100) : (1 - parseFloat(tpPct) / 100));
+
+  // Compute available balance for selected pair
+  const selBase = selPair?.base || selPair?.monitorSymbol?.replace(/USDC$/, '') || 'BTC';
+  const usdtBalance = parseFloat(balances.find(b => b.asset === 'USDT')?.free ?? 0);
+  const baseBalance = parseFloat(balances.find(b => b.asset === selBase)?.free ?? 0);
+
+  const applyQuickAmount = (pct) => {
+    const fraction = pct === 100 ? 1 : pct / 100;
+    let qty;
+    if (side === 'BUY') {
+      // BUY: spend USDT
+      qty = currentPrice > 0 ? (usdtBalance * fraction) / currentPrice : 0;
+    } else {
+      // SELL: spend base asset
+      qty = baseBalance * fraction;
+    }
+    setQuantity(qty.toFixed(6));
+  };
 
   // Balance strip: USDT, USDC, BTC, ETH
   const balanceAssets = ['USDT', 'USDC', 'BTC', 'ETH'];
   const balanceStrip = balanceAssets.map(asset => {
     const found = balances.find(b => b.asset === asset);
-    return { asset, free: found ? parseFloat(found.free) : 0, usdValue: found?.usdValue ?? null };
+    return { asset, free: found ? parseFloat(found.free) : 0 };
   });
 
   const handleTradeSubmit = async () => {
     if (!selPair) return;
+    const qty = parseFloat(quantity);
+    if (isNaN(qty) || qty <= 0) {
+      showTradeStatus(false, 'Invalid quantity');
+      return;
+    }
     try {
       await api.post('/trade/order', {
         symbol: selPair.tradeSymbol,
         side,
-        quantity: parseFloat(quantity),
+        quantity: qty,
         stopLoss: slPrice,
         takeProfit: tpPrice,
       });
+      showTradeStatus(true, `${side} order placed`);
     } catch (err) {
-      console.error('Trade error:', err);
+      showTradeStatus(false, err.response?.data?.error || 'Order failed');
     }
   };
 
@@ -162,11 +224,6 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
                 ? formatPrice(b.free, 4)
                 : formatPrice(b.free, 2)}
             </div>
-            <div className="balance-sub">
-              {b.usdValue != null && (
-                <span className="balance-usd">≈ ${formatPrice(b.usdValue, 2)}</span>
-              )}
-            </div>
           </div>
         ))}
       </div>
@@ -178,7 +235,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
             const obd = obdData[pair.monitorSymbol];
             const cfg = PAIRS_CONFIG.find(p => p.monitorSymbol === pair.monitorSymbol);
             const price = obd?.midPrice ?? cfg?.basePrice ?? 0;
-            const delta24h = obd?.delta24h ?? 0;
+            const delta1h = deltaData[pair.monitorSymbol] ?? null;
             const candles = candlesRef.current[pair.monitorSymbol] || [];
             const base = pair.base || pair.monitorSymbol?.replace(/USDC$/, '');
             return (
@@ -202,9 +259,11 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
                   </div>
                   <div style={{textAlign: 'right'}}>
                     <div className="pair-price">${formatPrice(price)}</div>
-                    <div className={`pair-delta ${delta24h >= 0 ? 'up' : 'dn'}`}>
-                      {delta24h >= 0 ? '+' : ''}{delta24h.toFixed(2)}%
-                    </div>
+                    {delta1h !== null && (
+                      <div className={`pair-delta ${delta1h >= 0 ? 'up' : 'dn'}`}>
+                        {delta1h >= 0 ? '+' : ''}{delta1h.toFixed(2)}% 1h
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="pair-body">
@@ -252,7 +311,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
             <div className="trade-panel">
               {/* Pair selector */}
               <div className="trade-pair-select">
-                <CoinGlyph symbol={selPair?.base || selPair?.monitorSymbol?.replace(/USDC$/, '') || 'BTC'} size={28}/>
+                <CoinGlyph symbol={selBase} size={28}/>
                 <div style={{flex: 1}}>
                   <div style={{fontWeight: 600, fontSize: 14}}>{selPair?.tradeSymbol || 'BTCUSDT'}</div>
                   <div className="mono" style={{fontSize: 11, color: 'var(--text-3)'}}>Spot · MAKER 0.10% / TAKER 0.10%</div>
@@ -278,12 +337,14 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
               </div>
 
               <div className="field" style={{marginBottom: 10}}>
-                <label className="label">Quantity ({selPair?.base || 'BTC'})</label>
+                <label className="label">Quantity ({selBase})</label>
                 <input className="input mono" value={quantity} onChange={e => setQuantity(e.target.value)}/>
               </div>
 
               <div className="quick-amounts">
-                {['25%', '50%', '75%', 'MAX'].map(x => <button key={x}>{x}</button>)}
+                {[['25%', 25], ['50%', 50], ['75%', 75], ['MAX', 100]].map(([label, pct]) => (
+                  <button key={label} onClick={() => applyQuickAmount(pct)}>{label}</button>
+                ))}
               </div>
 
               <div className="row2">
@@ -313,8 +374,21 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
                 </div>
               </div>
 
+              {tradeStatus && (
+                <div style={{
+                  padding: '8px 12px', borderRadius: 'var(--radius)', fontSize: 12,
+                  background: tradeStatus.ok
+                    ? 'color-mix(in srgb, var(--long) 12%, transparent)'
+                    : 'color-mix(in srgb, var(--short) 12%, transparent)',
+                  color: tradeStatus.ok ? 'var(--long)' : 'var(--short)',
+                  border: `1px solid color-mix(in srgb, ${tradeStatus.ok ? 'var(--long)' : 'var(--short)'} 30%, transparent)`,
+                }}>
+                  {tradeStatus.msg}
+                </div>
+              )}
+
               <button className={`submit-btn ${side === 'BUY' ? 'buy' : 'sell'}`} onClick={handleTradeSubmit}>
-                {side} {selPair?.base || 'BTC'} · ${formatPrice(parseFloat(quantity || 0) * currentPrice)}
+                {side} {selBase} · ${formatPrice(parseFloat(quantity || 0) * currentPrice)}
               </button>
             </div>
           </div>

@@ -182,6 +182,20 @@ export default function Stats() {
                   </div>
                   <div className="kpi-sub">per signal</div>
                 </div>
+                <div className="kpi">
+                  <div className="kpi-label">Max drawdown</div>
+                  <div className="kpi-value mono" style={{color: 'var(--short)'}}>
+                    -{stats.maxDrawdown ?? 0}%
+                  </div>
+                  <div className="kpi-sub">peak to trough</div>
+                </div>
+                <div className="kpi">
+                  <div className="kpi-label">Streak</div>
+                  <div className="kpi-value mono" style={{color: (stats.maxConsecutiveLosses ?? 0) >= 5 ? 'var(--short)' : 'var(--text-2)'}}>
+                    {stats.maxConsecutiveLosses ?? 0}
+                  </div>
+                  <div className="kpi-sub">max losses in a row</div>
+                </div>
               </div>
 
               {/* By pair */}

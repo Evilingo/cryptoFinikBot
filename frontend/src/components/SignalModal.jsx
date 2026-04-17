@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import api from '../services/api';
 import { CoinGlyph, Icon, ConfidenceBadge, formatPrice } from './primitives';
 import { Sparkchart, genCandles } from './charts';
@@ -13,6 +13,12 @@ export default function SignalModal({ signal, onClose }) {
   const [tpPct, setTpPct] = useState(
     signal.tp ? Math.abs((signal.tp - signal.price) / signal.price * 100).toFixed(1) : '3.0'
   );
+  const [tradeStatus, setTradeStatus] = useState(null); // {ok, msg}
+  const [balances, setBalances] = useState([]);
+
+  useEffect(() => {
+    api.get('/balance').then(({ data }) => setBalances(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
 
   // Normalize signal fields
   const price = signal.price ?? 0;
@@ -29,19 +35,44 @@ export default function SignalModal({ signal, onClose }) {
   const tpPrice = price * (side === 'BUY' ? (1 + parseFloat(tpPct) / 100) : (1 - parseFloat(tpPct) / 100));
   const rr = (parseFloat(tpPct) / parseFloat(slPct || 1)).toFixed(2);
 
+  const usdtBalance = parseFloat(balances.find(b => b.asset === 'USDT')?.free ?? 0);
+  const baseBalance = parseFloat(balances.find(b => b.asset === base)?.free ?? 0);
+
+  const applyQuickAmount = (pct) => {
+    const fraction = pct === 100 ? 1 : pct / 100;
+    let q;
+    if (side === 'BUY') {
+      q = price > 0 ? (usdtBalance * fraction) / price : 0;
+    } else {
+      q = baseBalance * fraction;
+    }
+    setQty(q.toFixed(6));
+  };
+
+  const showStatus = (ok, msg) => {
+    setTradeStatus({ ok, msg });
+    setTimeout(() => setTradeStatus(null), 3000);
+  };
+
   const handleTrade = async () => {
+    const quantity = parseFloat(qty);
+    if (isNaN(quantity) || quantity <= 0) {
+      showStatus(false, 'Invalid quantity');
+      return;
+    }
     try {
       const tradeSymbol = monSym.replace('USDC', 'USDT');
       await api.post('/trade/order', {
         symbol: tradeSymbol,
         side,
-        quantity: parseFloat(qty),
+        quantity,
         stopLoss: slPrice,
         takeProfit: tpPrice,
       });
-      onClose();
+      showStatus(true, `${side} order placed`);
+      setTimeout(onClose, 1500);
     } catch (err) {
-      console.error('Trade error:', err);
+      showStatus(false, err.response?.data?.error || 'Order failed');
     }
   };
 
@@ -140,7 +171,9 @@ export default function SignalModal({ signal, onClose }) {
               <input className="input mono" value={qty} onChange={e => setQty(e.target.value)}/>
             </div>
             <div className="quick-amounts">
-              {['25%', '50%', '75%', 'MAX'].map(x => <button key={x}>{x}</button>)}
+              {[['25%', 25], ['50%', 50], ['75%', 75], ['MAX', 100]].map(([label, pct]) => (
+                <button key={label} onClick={() => applyQuickAmount(pct)}>{label}</button>
+              ))}
             </div>
 
             <div className="row2">
@@ -163,6 +196,18 @@ export default function SignalModal({ signal, onClose }) {
             </div>
 
             <div style={{marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8}}>
+              {tradeStatus && (
+                <div style={{
+                  padding: '8px 12px', borderRadius: 'var(--radius)', fontSize: 12, textAlign: 'center',
+                  background: tradeStatus.ok
+                    ? 'color-mix(in srgb, var(--long) 12%, transparent)'
+                    : 'color-mix(in srgb, var(--short) 12%, transparent)',
+                  color: tradeStatus.ok ? 'var(--long)' : 'var(--short)',
+                  border: `1px solid color-mix(in srgb, ${tradeStatus.ok ? 'var(--long)' : 'var(--short)'} 30%, transparent)`,
+                }}>
+                  {tradeStatus.msg}
+                </div>
+              )}
               <button
                 className={`submit-btn ${side === 'BUY' ? 'buy' : 'sell'}`}
                 onClick={handleTrade}
