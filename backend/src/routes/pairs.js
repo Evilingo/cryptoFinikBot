@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import { prisma } from '../db/prisma.js';
-import { authMiddleware } from '../middleware/auth.js';
 import { getLatestObd } from '../services/indicators/engine.js';
 
 const router = Router();
 
-router.get('/', authMiddleware, async (req, res) => {
+router.get('/', async (req, res) => {
   const pairs = await prisma.tradingPair.findMany({
     where: { isActive: true },
     orderBy: { id: 'asc' },

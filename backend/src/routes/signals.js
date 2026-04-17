@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import { prisma } from '../db/prisma.js';
-import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 
-router.get('/', authMiddleware, async (req, res) => {
+router.get('/', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const offset = parseInt(req.query.offset) || 0;
 

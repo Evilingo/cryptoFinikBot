@@ -8,7 +8,8 @@ import Settings from './pages/Settings';
 import Stats from './pages/Stats';
 import Sidebar from './components/layout/Sidebar';
 
-function ProtectedRoute({ children }) {
+// AdminRoute — only for Settings; redirects to /login if not authenticated
+function AdminRoute({ children }) {
   const { authenticated, loading } = useAuth();
   if (loading) {
     return (
@@ -17,7 +18,7 @@ function ProtectedRoute({ children }) {
       </div>
     );
   }
-  return authenticated ? children : <Navigate to="/login" />;
+  return authenticated ? children : <Navigate to="/login" state={{ from: '/settings' }} />;
 }
 
 function Layout({ children }) {
@@ -37,36 +38,15 @@ export default function App() {
       <ErrorBoundary>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Layout><Dashboard /></Layout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/signals"
-            element={
-              <ProtectedRoute>
-                <Layout><Signals /></Layout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/stats"
-            element={
-              <ProtectedRoute>
-                <Layout><Stats /></Layout>
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/" element={<Layout><Dashboard /></Layout>} />
+          <Route path="/signals" element={<Layout><Signals /></Layout>} />
+          <Route path="/stats" element={<Layout><Stats /></Layout>} />
           <Route
             path="/settings"
             element={
-              <ProtectedRoute>
+              <AdminRoute>
                 <Layout><Settings /></Layout>
-              </ProtectedRoute>
+              </AdminRoute>
             }
           />
           <Route path="*" element={<Navigate to="/" />} />

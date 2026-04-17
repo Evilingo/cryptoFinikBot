@@ -1,24 +1,24 @@
 import { Router } from 'express';
-import { authMiddleware } from '../middleware/auth.js';
+
 import { getSignalStats, getEnhancedStats, runBacktest, runOptimize } from '../services/signals/tracker.js';
 import { prisma } from '../db/prisma.js';
 
 const router = Router();
 
-router.get('/', authMiddleware, async (req, res) => {
+router.get('/', async (req, res) => {
   const pairId = req.query.pairId ? parseInt(req.query.pairId) : null;
   const stats = await getSignalStats(pairId);
   res.json(stats);
 });
 
-router.get('/analytics', authMiddleware, async (req, res) => {
+router.get('/analytics', async (req, res) => {
   const pairId = req.query.pairId ? parseInt(req.query.pairId) : null;
   const since = req.query.since ? new Date(req.query.since) : null;
   const data = await getEnhancedStats(pairId, since);
   res.json(data);
 });
 
-router.get('/snapshots', authMiddleware, async (req, res) => {
+router.get('/snapshots', async (req, res) => {
   const counts = await prisma.obdSnapshot.groupBy({
     by: ['pairId'],
     _count: { id: true },
@@ -39,7 +39,7 @@ router.get('/snapshots', authMiddleware, async (req, res) => {
   res.json(result);
 });
 
-router.get('/backtest', authMiddleware, async (req, res) => {
+router.get('/backtest', async (req, res) => {
   const { pairId, from, to, threshold, slPct, tpPct, direction } = req.query;
   if (!pairId || !from || !to) {
     return res.status(400).json({ error: 'pairId, from, to are required' });
@@ -78,7 +78,7 @@ router.get('/backtest', authMiddleware, async (req, res) => {
   res.json(result);
 });
 
-router.get('/optimize', authMiddleware, async (req, res) => {
+router.get('/optimize', async (req, res) => {
   const { pairIds, from, to, direction } = req.query;
   if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
 

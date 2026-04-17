@@ -9,11 +9,12 @@ export function useWebSocket(onMessage) {
   onMessageRef.current = onMessage;
 
   const connect = useCallback(() => {
-    const token = getAccessToken();
-    if (!token) return;
-
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${token}`);
+    const token = getAccessToken();
+    const url = token
+      ? `${protocol}//${window.location.host}/ws?token=${token}`
+      : `${protocol}//${window.location.host}/ws`;
+    const ws = new WebSocket(url);
 
     ws.onopen = () => {
       setConnected(true);
