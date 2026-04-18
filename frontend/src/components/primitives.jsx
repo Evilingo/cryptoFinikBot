@@ -97,8 +97,11 @@ export function DirectionBadge({ dir }) {
   return <span className={`badge ${cls}`}>{arrow} {dir}</span>;
 }
 
-export function OutcomeBadge({ outcome }) {
-  if (!outcome) return <span className="badge badge-pending">PENDING</span>;
+export function OutcomeBadge({ outcome, direction }) {
+  if (!outcome) {
+    if (direction === 'WAIT') return <span className="badge badge-wait">NO TRADE</span>;
+    return <span className="badge badge-pending">OPEN</span>;
+  }
   const map = { WIN: 'badge-win', LOSS: 'badge-loss', BREAKEVEN: 'badge-warn' };
   return <span className={`badge ${map[outcome] || 'badge-pending'}`}>{outcome}</span>;
 }

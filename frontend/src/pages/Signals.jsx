@@ -136,13 +136,22 @@ export default function Signals({ onOpenSignal }) {
                       ) : (
                         <span style={{display: 'inline-flex', alignItems: 'center', gap: 5}}>
                           <span style={{fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-3)', background: 'var(--bg-2)', padding: '1px 6px', borderRadius: 8}}>OBD</span>
-                          <span style={{color: 'var(--text-3)', fontSize: 11}}>
-                            {s.obd.every(v => v != null) ? s.obd.map(v => v.toFixed(1)).join(' · ') : '—'}
-                          </span>
+                          {s.obd.every(v => v != null) ? (
+                            <span style={{display: 'inline-flex', alignItems: 'flex-end', gap: 2, height: 16}}>
+                              {s.obd.map((v, i) => (
+                                <span key={i} title={`obd${i+1}: ${v.toFixed(1)}`} style={{
+                                  display: 'inline-block', width: 5, borderRadius: 2,
+                                  height: `${Math.max(3, Math.round(v / 100 * 16))}px`,
+                                  background: v > 60 ? 'var(--long)' : v < 40 ? 'var(--short)' : 'var(--text-3)',
+                                  opacity: 0.75,
+                                }}/>
+                              ))}
+                            </span>
+                          ) : <span style={{color: 'var(--text-4)'}}>—</span>}
                         </span>
                       )}
                     </td>
-                    <td><OutcomeBadge outcome={s.outcome}/></td>
+                    <td><OutcomeBadge outcome={s.outcome} direction={s.direction}/></td>
                     <td className="num">
                       {s.pnl != null ? (
                         <span style={{color: s.pnl > 0 ? 'var(--long)' : s.pnl < 0 ? 'var(--short)' : 'var(--text-3)', fontWeight: 600}}>
