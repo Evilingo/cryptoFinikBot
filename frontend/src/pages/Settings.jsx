@@ -21,6 +21,7 @@ export default function Settings() {
   const [autoTradeAmount, setAutoTradeAmount] = useState(10);
   const [maxOpenTrades, setMaxOpenTrades] = useState(1);
   const [enableShort, setEnableShort] = useState(true);
+  const [ofiEnabled, setOfiEnabled] = useState(false);
   const [balanceResult, setBalanceResult] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
   const [bybitStatus, setBybitStatus] = useState(null); // inline status for Bybit section
@@ -36,6 +37,7 @@ export default function Settings() {
       setAutoTradeAmount(data.autoTradeAmount ?? 10);
       setMaxOpenTrades(data.maxOpenTrades ?? 1);
       setEnableShort(data.allowShort ?? true);
+      setOfiEnabled(data.ofiEnabled ?? false);
       setTgToken(data.telegramToken || '');
       setTgChatId(data.telegramChatId || '');
     }).catch(() => {});
@@ -141,6 +143,16 @@ export default function Settings() {
     try {
       await api.put('/settings/autotrade', { autoTrade, autoTradeAmount: Number(autoTradeAmount), maxOpenTrades: Number(maxOpenTrades), allowShort: enableShort });
       showStatus(true, 'Auto-trade settings saved');
+    } catch (err) {
+      showStatus(false, err.response?.data?.error || 'Save failed');
+    }
+  };
+
+  const saveOfi = async (value) => {
+    try {
+      await api.put('/settings/ofi', { ofiEnabled: value });
+      setOfiEnabled(value);
+      showStatus(true, `OFI strategy ${value ? 'enabled' : 'disabled'}`);
     } catch (err) {
       showStatus(false, err.response?.data?.error || 'Save failed');
     }
@@ -325,6 +337,27 @@ export default function Settings() {
 
                 <div style={{marginTop: 16}}>
                   <button className="btn btn-primary" onClick={saveAutoTrade}>Save auto-trade</button>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <h3>Signal strategies</h3>
+                <p className="subtitle">Active detection strategies run in parallel</p>
+
+                <div className="row-setting">
+                  <div className="row-setting-info">
+                    <strong>OBD — Order Book Depth</strong>
+                    <span>Detects pressure from order book imbalance (always active)</span>
+                  </div>
+                  <Toggle on={true} onChange={() => {}}/>
+                </div>
+
+                <div className="row-setting">
+                  <div className="row-setting-info">
+                    <strong>OFI — Order Flow Imbalance</strong>
+                    <span>Detects pressure from real executed trades (60s window)</span>
+                  </div>
+                  <Toggle on={ofiEnabled} onChange={saveOfi}/>
                 </div>
               </div>
 
