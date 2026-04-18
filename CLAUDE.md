@@ -168,8 +168,16 @@ Uses `ObdSnapshot` table (filled every 30s) to replay signal detection:
 - `detectSignalFromHistory()` — pure sync version of `detectSignal`, used for replay
 - Applies configurable SL%/TP% to determine WIN/LOSS for each simulated signal
 - Returns equity curve + stats
+- API: `GET /api/stats/backtest?pairId=&from=&to=&threshold=&slPct=&tpPct=&direction=LONG|SHORT`
 
 **ObdSnapshot accumulation:** snapshots are saved every 30s per symbol automatically. After 1 week ~80K rows, after 1 month ~320K rows. The more data, the more reliable the backtest. Do not delete ObdSnapshots unless storage is critically low.
+
+**Analytics versioning:** Signal analytics split into versions due to system changes:
+- `analitics_v2` — signals from 2026-04-19 onwards. Full metadata: `rsi`, `trend5m`, `trend15m`, `atr`, `atrPct`. Use this for all Signal-based analytics.
+- Pre-v2 — incomplete metadata, different Claude prompt, cooldown was 90min. Don't mix with v2 in analytics.
+- ObdSnapshot-based backtest has no versioning issue — detection algorithm is always re-applied to raw data.
+
+**Backtest reports and roadmap:** `BACKTEST_REPORTS.md` in project root. Contains all historical backtest results, accumulated analytics, open hypotheses, and the backtest methodology roadmap. Update after every backtest run.
 
 ### Database Schema (Prisma/PostgreSQL)
 
@@ -178,6 +186,8 @@ Models: `User`, `Settings` (singleton id=1), `TradingPair`, `Signal`, `Trade`, `
 **Settings fields:** `claudePrompt`, `binanceApiKey`/`binanceSecret` (AES-256-GCM encrypted), `telegramToken`, `telegramChatId`, `dipThreshold` (default 10), `minConfidence` (default 65), `autoTrade` (default false), `autoTradeAmount` (default 10 USDT), `maxOpenTrades` (default 1)
 
 **Signal outcome tracking:** `outcome` (WIN/LOSS/BREAKEVEN/null=PENDING), `outcomePrice`, `outcomePnl`, `outcomeAt`, `maxPrice`, `minPrice`
+
+**Signal metadata (analitics_v2, from 2026-04-19):** `rsi` (RSI-14 on 1m), `trend5m`/`trend15m` (UP/DOWN/FLAT), `atr` (ATR-14 on 15m, absolute), `atrPct` (ATR as % of price)
 
 **Trade fields:** `signalId` (links to Signal), `symbol`, `side`, `quantity`, `price`, `stopLoss`, `takeProfit`, `binanceOrderId`, `status`, `pnl`
 
@@ -236,9 +246,34 @@ POST   /telegram/webhook               — Telegram bot webhook (no auth)
 | SOLUSDC | SOLUSDT |
 | BNBUSDC | BNBUSDT |
 
-## ROADMAP Status
+## Claude Prompt Architecture
 
-See `ROADMAP.md` for full details.
+Two separate Claude prompts, both stored in `Settings` DB and editable via UI:
+
+- **OBD prompt** (`Settings.claudePrompt`) — mean-reversion signal filter. Loaded via `getSystemPrompt()`. Hash-synced on deploy: if `DEFAULT_PROMPT` in `prompts.js` ≠ `Settings.promptHash`, DB is auto-updated.
+- **OFI prompt** (`Settings.ofiClaudePrompt`) — momentum signal filter. Loaded via `getOfiSystemPrompt()`. Hash-synced via `ofiPromptHash`.
+
+**OBD prompt scoring logic (as of 2026-04-19):**
+- Base confidence: 65
+- RSI LONG: `<30 +10 | 30–45 +5 | 45–65 0 | >65 −5` (mean-reversion — RSI extremes are good)
+- RSI SHORT: `>70 +10 | 55–70 +5 | 35–55 0 | <35 −5`
+- No trend scoring — OBD is mean-reversion, trend alignment bonus was conceptually wrong
+- TP = 3×ATR (not 2×, to pass `validateSlTp` RR≥2 check after fees)
+- WAIT if confidence < 65 after scoring
+
+**OFI prompt scoring:** keeps trend scoring (momentum signal, different nature). RSI exhaustion penalties at extremes (<20 for LONG, >80 for SHORT).
+
+**SL/TP validation (`orchestrator.js:validateSlTp`):** runs after every Claude response. Catches inverted levels (SL/TP wrong direction) → ATR fallback (1.5×ATR SL, 3.5×ATR TP). Forces WAIT if net TP < 0.4% after fees. Expands TP if net RR < 2.0.
+
+## Skills (Claude Code slash commands)
+
+Custom skills stored in `~/.claude/commands/`:
+
+- **`/backtest`** (`~/.claude/commands/backtest.md`) — backtest analyst role. Three modes: planning, results analysis, methodology improvement. Contains full backtest roadmap with 🔴/🟡/🟢 priority items, data collection improvement list, and interpretation guidelines (winrate thresholds, equity curve patterns).
+
+- **`/discuss`** (`~/.claude/commands/discuss.md`) — trading idea review with two personas: "Коллега" (20 years, skeptic, anti-overfitting) and "Босс" (40 years, finds what everyone missed). Use for any proposed algorithm change before implementing. Follows format: Я → Коллега → Я → Босс.
+
+## ROADMAP Status
 
 | Priority | Task | Status |
 |---|---|---|
@@ -247,5 +282,8 @@ See `ROADMAP.md` for full details.
 | 3 | Multi-timeframe контекст | ✅ |
 | 4 | Корректная цена входа | ✅ |
 | 5 | SHORT сигналы | ✅ |
-| 6 | Бэктестинг на реальных данных | Не начато |
+| 6 | Бэктестинг на реальных данных | 🔄 В процессе — см. BACKTEST_REPORTS.md |
 | 7 | Автоторговля | ✅ |
+| 8 | Walk-forward validation | Ожидает >200 сигналов |
+| 9 | Slippage модель в бэктесте | Не начато |
+| 10 | Monte Carlo симуляция | Не начато |
