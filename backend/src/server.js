@@ -12,7 +12,12 @@ import { initWebSocketHub } from './ws/hub.js';
 import { stopOrderBookPolling } from './services/binance/orderbook.js';
 import { initExchangeWs, stopAllExchangeWs } from './services/exchange/wsManager.js';
 
+import crypto from 'node:crypto';
 import { DEFAULT_PROMPT } from './services/claude/prompts.js';
+
+function hashPrompt(text) {
+  return crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
+}
 import authRoutes from './routes/auth.js';
 import pairsRoutes from './routes/pairs.js';
 import signalsRoutes from './routes/signals.js';
@@ -86,23 +91,39 @@ async function seedAdmin() {
 
   // Seed default settings
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+  const currentHash = hashPrompt(DEFAULT_PROMPT);
+
   if (!settings) {
     await prisma.settings.create({
       data: {
         id: 1,
         claudePrompt: DEFAULT_PROMPT,
+        promptHash: currentHash,
         telegramToken: env.telegramToken,
         telegramChatId: env.telegramChatId,
       },
     });
     logger.info('Default settings created');
-  } else if (env.telegramToken && !settings.telegramToken) {
+  } else {
+    const updates = {};
+
+    // Sync prompt if DEFAULT_PROMPT changed in code since last deploy
+    if (settings.promptHash !== currentHash) {
+      updates.claudePrompt = DEFAULT_PROMPT;
+      updates.promptHash = currentHash;
+      logger.info('DEFAULT_PROMPT changed — syncing to DB');
+    }
+
     // Sync Telegram credentials from env if not yet set in DB
-    await prisma.settings.update({
-      where: { id: 1 },
-      data: { telegramToken: env.telegramToken, telegramChatId: env.telegramChatId },
-    });
-    logger.info('Telegram credentials synced from env to DB');
+    if (env.telegramToken && !settings.telegramToken) {
+      updates.telegramToken = env.telegramToken;
+      updates.telegramChatId = env.telegramChatId;
+      logger.info('Telegram credentials synced from env to DB');
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await prisma.settings.update({ where: { id: 1 }, data: updates });
+    }
   }
 
   // Seed trading pairs

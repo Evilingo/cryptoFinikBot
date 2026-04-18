@@ -36,7 +36,8 @@ router.put('/prompt', authMiddleware, async (req, res) => {
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ error: 'prompt is required' });
   }
-  await prisma.settings.update({ where: { id: 1 }, data: { claudePrompt: prompt } });
+  // Clear promptHash so next deploy with changed DEFAULT_PROMPT will still sync
+  await prisma.settings.update({ where: { id: 1 }, data: { claudePrompt: prompt, promptHash: '' } });
   res.json({ ok: true });
 });
 

@@ -27,6 +27,7 @@ model Settings {
   autoTradeAmount Float   @default(10)
   maxOpenTrades  Int      @default(1)
   allowShort     Boolean  @default(true)
+  promptHash     String   @default("")
   exchange       String   @default("binance")
   bybitApiKey    String   @default("")
   bybitSecret    String   @default("")
