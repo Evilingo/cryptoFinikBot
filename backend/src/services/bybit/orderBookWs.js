@@ -152,20 +152,21 @@ function handleMessage(raw) {
   if (msgType === 'delta') {
     if (!synced.has(symbol)) return;
 
-    // Gap detection
+    // Gap detection — resubscribe only this symbol, don't tear down the whole WS
     const prevSeq = lastSeq.get(symbol);
     if (prevSeq !== undefined && seq !== prevSeq + 1) {
-      logger.warn(`Bybit OB sequence gap for ${symbol}: expected ${prevSeq + 1}, got ${seq}. Reconnecting.`);
+      logger.warn(`Bybit OB sequence gap for ${symbol}: expected ${prevSeq + 1}, got ${seq}. Resubscribing symbol.`);
       synced.delete(symbol);
-      // Trigger full reconnect
-      if (ws) {
-        ws.removeAllListeners('close');
-        ws.close();
-        ws = null;
-      }
-      clearTimers();
-      if (!stopped) {
-        reconnectTimer = setTimeout(() => startBybitOrderBookWs(), 5000);
+      lastSeq.delete(symbol);
+      books.delete(symbol);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const topic = `orderbook.200.${symbol}`;
+        ws.send(JSON.stringify({ op: 'unsubscribe', args: [topic] }));
+        setTimeout(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ op: 'subscribe', args: [topic] }));
+          }
+        }, 200);
       }
       return;
     }
