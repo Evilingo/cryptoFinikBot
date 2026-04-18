@@ -105,25 +105,46 @@ const MIN_NET_RR = 2.0;
 
 /**
  * Проверяет и корректирует SL/TP с учётом комиссий.
+ * - Если SL/TP перепутаны по направлению: ATR-fallback (1.5×ATR SL, 3.5×ATR TP) или WAIT если ATR нет
  * - Если чистый TP (после комиссий) < MIN_NET_TP_PCT → WAIT
  * - Если чистый RR < MIN_NET_RR → расширяем TP до минимально допустимого
  */
-function validateSlTp(result, price, symbol = '') {
+function validateSlTp(result, price, symbol = '', atr15m = null) {
   const { direction, suggestedSl, suggestedTp } = result;
 
   if (direction === 'WAIT' || !suggestedSl || !suggestedTp) return result;
 
   const isLong = direction === 'LONG';
-  const tpDist = isLong ? suggestedTp - price : price - suggestedTp;
-  const slDist = isLong ? price - suggestedSl : suggestedSl - price;
+  let effSl = suggestedSl;
+  let effTp = suggestedTp;
 
-  if (tpDist <= 0 || slDist <= 0) {
-    logger.warn('Invalid SL/TP direction, forcing WAIT', { direction, price, suggestedSl, suggestedTp });
-    return { ...result, direction: 'WAIT', analysis: result.analysis + ' [Авто-WAIT: некорректные уровни SL/TP]' };
+  const slDist0 = isLong ? price - effSl : effSl - price;
+  const tpDist0 = isLong ? effTp - price : price - effTp;
+
+  if (slDist0 <= 0 || tpDist0 <= 0) {
+    if (!atr15m?.value) {
+      logger.warn('Invalid SL/TP direction, forcing WAIT', { direction, price, suggestedSl, suggestedTp });
+      return { ...result, direction: 'WAIT', analysis: result.analysis + ' [Авто-WAIT: некорректные уровни SL/TP]' };
+    }
+    const slDist = 1.5 * atr15m.value;
+    const tpDist = 3.5 * atr15m.value;
+    effSl = Math.round((isLong ? price - slDist : price + slDist) * 100) / 100;
+    effTp = Math.round((isLong ? price + tpDist : price - tpDist) * 100) / 100;
+    logger.warn('Invalid SL/TP direction, using ATR fallback', {
+      symbol, direction, price,
+      originalSl: suggestedSl, originalTp: suggestedTp,
+      atrSl: effSl, atrTp: effTp,
+    });
+    result = {
+      ...result,
+      suggestedSl: effSl,
+      suggestedTp: effTp,
+      analysis: result.analysis + ` [SL/TP заменены ATR-fallback: SL=${effSl}, TP=${effTp}]`,
+    };
   }
 
-  const tpPct   = tpDist / price;
-  const slPct   = slDist / price;
+  const tpPct   = (isLong ? effTp - price : price - effTp) / price;
+  const slPct   = (isLong ? price - effSl : effSl - price) / price;
   const netTpPct = tpPct - ROUND_TRIP_FEE;
   const netSlPct = slPct + ROUND_TRIP_FEE;
 
@@ -207,7 +228,7 @@ ${atr15mLine}`;
     return { direction: 'WAIT', confidence: 0, analysis: text, suggestedSl: null, suggestedTp: null };
   }
 
-  return validateSlTp(parsed, currentPrice, pair.monitorSymbol);
+  return validateSlTp(parsed, currentPrice, pair.monitorSymbol, atr15m);
 }
 
 export async function analyzeSignal(pair, obd, candles, currentPrice) {
@@ -267,7 +288,7 @@ ${atr15mLine}
     };
   }
 
-  const validated = validateSlTp(parsed, currentPrice, pair.monitorSymbol);
+  const validated = validateSlTp(parsed, currentPrice, pair.monitorSymbol, atr15m);
 
   if (validated.direction !== parsed.direction || validated.suggestedTp !== parsed.suggestedTp) {
     logger.info('SL/TP post-validation applied', {
