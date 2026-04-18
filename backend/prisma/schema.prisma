@@ -32,6 +32,8 @@ model Settings {
   bybitApiKey    String   @default("")
   bybitSecret    String   @default("")
   ofiEnabled     Boolean  @default(false)
+  ofiClaudePrompt String  @default("") @db.Text
+  ofiPromptHash  String   @default("")
   updatedAt      DateTime @updatedAt
 }
 

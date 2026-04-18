@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../../config/env.js';
-import { getSystemPrompt } from './prompts.js';
+import { getSystemPrompt, getOfiSystemPrompt } from './prompts.js';
 import { calcTechnicals, calcTrend, calcAtr } from '../indicators/technicals.js';
 import { getKlines } from '../exchange/index.js';
 import { logger } from '../../config/logger.js';
@@ -174,35 +174,20 @@ export async function analyzeOfiSignal(pair, currentPrice, ofiDirection, ofiRati
     return { direction: ofiDirection, confidence: null, analysis: 'Claude not configured', suggestedSl: null, suggestedTp: null };
   }
   const [systemPrompt, { trend5m, trend15m, atr15m }] = await Promise.all([
-    getSystemPrompt(),
+    getOfiSystemPrompt(),
     fetchHigherTimeframes(pair.monitorSymbol),
   ]);
 
   const atr15mLine = atr15m
-    ? `ATR(14) на 15m: ${atr15m.value} (${atr15m.pct}% от цены) — ИСПОЛЬЗУЙ ДЛЯ РАСЧЁТА SL/TP`
+    ? `ATR(14) на 15m: ${atr15m.value} (${atr15m.pct}% от цены)`
     : 'ATR(15m): н/д';
 
-  const userMessage = `Пара для анализа: ${pair.monitorSymbol} (сигнал), торговля через ${pair.tradeSymbol}
-Текущая цена: ${currentPrice}
+  const userMessage = `Пара: ${pair.monitorSymbol} → ${pair.tradeSymbol}
+Цена: ${currentPrice}
+OFI: ${ofiDirection}, ratio ${ofiRatio}%
 
-Стратегия: Order Flow Imbalance (OFI)
-OFI направление: ${ofiDirection}
-OFI покупки за 60 сек: ${ofiRatio}% (>65% = давление покупателей, <35% = продавцов)
-
-Тренд на старших таймфреймах (последние 20 свечей):
-${formatHigherTf(trend5m, trend15m)}
-
-Размер для SL/TP (15m таймфрейм):
-${atr15mLine}
-
-На основе данных дай ответ строго в JSON:
-{
-  "direction": "LONG" | "SHORT" | "WAIT",
-  "confidence": 0-100,
-  "analysis": "краткое объяснение (2-3 предложения)",
-  "suggestedSl": число или null,
-  "suggestedTp": число или null
-}`;
+Тренд: ${formatHigherTf(trend5m, trend15m)}
+${atr15mLine}`;
 
   logger.info('Calling Claude for OFI signal analysis', {
     symbol: pair.monitorSymbol,
@@ -242,35 +227,13 @@ export async function analyzeSignal(pair, obd, candles, currentPrice) {
     ? `ATR(14) на 15m: ${atr15m.value} (${atr15m.pct}% от цены) — ИСПОЛЬЗУЙ ДЛЯ РАСЧЁТА SL/TP`
     : 'ATR(15m): н/д';
 
-  const userMessage = `Пара для анализа: ${pair.monitorSymbol} (сигнал), торговля через ${pair.tradeSymbol}
-Текущая цена: ${currentPrice}
-
-Order Book Depth индикаторы (0-100, >50 = давление покупателей):
-- obd1 (ближний спред): ${obd.obd1}
-- obd2 (средний спред): ${obd.obd2}
-- obd3 (средняя глубина): ${obd.obd3}
-- obd4 (широкая глубина): ${obd.obd4}
-
-Тренд на старших таймфреймах (последние 20 свечей):
-${formatHigherTf(trend5m, trend15m)}
-
-Технические индикаторы (${pair.timeframe}):
+  const userMessage = `Пара: ${pair.monitorSymbol} → ${pair.tradeSymbol}
+Цена: ${currentPrice}
+OBD: obd1=${obd.obd1} obd2=${obd.obd2} obd3=${obd.obd3} obd4=${obd.obd4}
+Тренд: ${formatHigherTf(trend5m, trend15m)}
 ${techSection}
-
-Размер для SL/TP (15m таймфрейм):
 ${atr15mLine}
-
-Последние 20 свечей OHLCV (таймфрейм ${pair.timeframe}):
-${JSON.stringify(candles.slice(-20))}
-
-На основе данных дай ответ строго в JSON:
-{
-  "direction": "LONG" | "SHORT" | "WAIT",
-  "confidence": 0-100,
-  "analysis": "краткое объяснение (2-3 предложения)",
-  "suggestedSl": число или null,
-  "suggestedTp": число или null
-}`;
+Свечи ${pair.timeframe}: ${JSON.stringify(candles.slice(-20))}`;
 
   logger.info('Calling Claude for signal analysis', {
     symbol: pair.monitorSymbol,

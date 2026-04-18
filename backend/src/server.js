@@ -13,7 +13,7 @@ import { stopOrderBookPolling } from './services/binance/orderbook.js';
 import { initExchangeWs, stopAllExchangeWs } from './services/exchange/wsManager.js';
 
 import crypto from 'node:crypto';
-import { DEFAULT_PROMPT } from './services/claude/prompts.js';
+import { DEFAULT_PROMPT, DEFAULT_OFI_PROMPT } from './services/claude/prompts.js';
 
 function hashPrompt(text) {
   return crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
@@ -92,6 +92,7 @@ async function seedAdmin() {
   // Seed default settings
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
   const currentHash = hashPrompt(DEFAULT_PROMPT);
+  const currentOfiHash = hashPrompt(DEFAULT_OFI_PROMPT);
 
   if (!settings) {
     await prisma.settings.create({
@@ -99,6 +100,8 @@ async function seedAdmin() {
         id: 1,
         claudePrompt: DEFAULT_PROMPT,
         promptHash: currentHash,
+        ofiClaudePrompt: DEFAULT_OFI_PROMPT,
+        ofiPromptHash: currentOfiHash,
         telegramToken: env.telegramToken,
         telegramChatId: env.telegramChatId,
       },
@@ -107,14 +110,18 @@ async function seedAdmin() {
   } else {
     const updates = {};
 
-    // Sync prompt if DEFAULT_PROMPT changed in code since last deploy
     if (settings.promptHash !== currentHash) {
       updates.claudePrompt = DEFAULT_PROMPT;
       updates.promptHash = currentHash;
       logger.info('DEFAULT_PROMPT changed — syncing to DB');
     }
 
-    // Sync Telegram credentials from env if not yet set in DB
+    if (!settings.ofiClaudePrompt || settings.ofiPromptHash !== currentOfiHash) {
+      updates.ofiClaudePrompt = DEFAULT_OFI_PROMPT;
+      updates.ofiPromptHash = currentOfiHash;
+      logger.info('DEFAULT_OFI_PROMPT changed — syncing to DB');
+    }
+
     if (env.telegramToken && !settings.telegramToken) {
       updates.telegramToken = env.telegramToken;
       updates.telegramChatId = env.telegramChatId;

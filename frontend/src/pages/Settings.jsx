@@ -8,6 +8,7 @@ export default function Settings() {
 
   // Form state
   const [prompt, setPrompt] = useState('');
+  const [ofiPrompt, setOfiPrompt] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [secret, setSecret] = useState('');
   const [bybitApiKey, setBybitApiKey] = useState('');
@@ -30,6 +31,7 @@ export default function Settings() {
     api.get('/settings').then(({ data }) => {
       setSettings(data);
       setPrompt(data.claudePrompt || '');
+      setOfiPrompt(data.ofiClaudePrompt || '');
       setExchange(data.exchange || 'binance');
       setThreshold(data.dipThreshold ?? 10);
       setMinConfidence(data.minConfidence ?? 65);
@@ -51,7 +53,16 @@ export default function Settings() {
   const savePrompt = async () => {
     try {
       await api.put('/settings/prompt', { prompt });
-      showStatus(true, 'Prompt saved');
+      showStatus(true, 'OBD prompt saved');
+    } catch (err) {
+      showStatus(false, err.response?.data?.error || 'Save failed');
+    }
+  };
+
+  const saveOfiPrompt = async () => {
+    try {
+      await api.put('/settings/ofi-prompt', { prompt: ofiPrompt });
+      showStatus(true, 'OFI prompt saved');
     } catch (err) {
       showStatus(false, err.response?.data?.error || 'Save failed');
     }
@@ -447,26 +458,35 @@ export default function Settings() {
 
           {/* ===== Claude AI ===== */}
           {section === 'claude' && (
-            <div className="settings-section">
-              <h3>Claude prompt</h3>
-              <p className="subtitle">System prompt for Claude — context, OBD interpretation rules and output format</p>
-              <textarea
-                className="textarea"
-                style={{minHeight: 280, fontFamily: 'var(--font-mono)', fontSize: 12}}
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-              />
-              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)'}}>
-                <div style={{fontSize: 12, color: 'var(--text-3)'}}>
-                  Last call: <span style={{color: 'var(--text-2)'}}>3 min ago</span>
-                  {' · '}avg latency <span className="mono" style={{color: 'var(--text-2)'}}>12.4s</span>
-                </div>
-                <div style={{display: 'flex', gap: 8}}>
-                  <button className="btn btn-ghost">Test prompt</button>
-                  <button className="btn btn-primary" onClick={savePrompt}>Save prompt</button>
+            <>
+              <div className="settings-section">
+                <h3>OBD prompt</h3>
+                <p className="subtitle">System prompt for OBD signals — order book depth interpretation rules</p>
+                <textarea
+                  className="textarea"
+                  style={{minHeight: 280, fontFamily: 'var(--font-mono)', fontSize: 12}}
+                  value={prompt}
+                  onChange={e => setPrompt(e.target.value)}
+                />
+                <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)'}}>
+                  <button className="btn btn-primary" onClick={savePrompt}>Save OBD prompt</button>
                 </div>
               </div>
-            </div>
+
+              <div className="settings-section">
+                <h3>OFI prompt</h3>
+                <p className="subtitle">System prompt for OFI signals — order flow imbalance interpretation rules</p>
+                <textarea
+                  className="textarea"
+                  style={{minHeight: 280, fontFamily: 'var(--font-mono)', fontSize: 12}}
+                  value={ofiPrompt}
+                  onChange={e => setOfiPrompt(e.target.value)}
+                />
+                <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)'}}>
+                  <button className="btn btn-primary" onClick={saveOfiPrompt}>Save OFI prompt</button>
+                </div>
+              </div>
+            </>
           )}
 
           {/* ===== Telegram ===== */}

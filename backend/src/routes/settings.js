@@ -29,6 +29,7 @@ router.get('/', authMiddleware, async (req, res) => {
     bybitApiKey: s.bybitApiKey ? 'Configured ****' : 'Not set',
     bybitSecret: s.bybitSecret ? 'Configured ****' : 'Not set',
     ofiEnabled: s.ofiEnabled ?? false,
+    ofiClaudePrompt: s.ofiClaudePrompt || '',
   });
 });
 
@@ -144,6 +145,15 @@ router.put('/autotrade', authMiddleware, async (req, res) => {
   if (typeof allowShort === 'boolean') data.allowShort = allowShort;
   if (Object.keys(data).length === 0) return res.status(400).json({ error: 'No valid fields provided' });
   await prisma.settings.update({ where: { id: 1 }, data });
+  res.json({ ok: true });
+});
+
+router.put('/ofi-prompt', authMiddleware, async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    return res.status(400).json({ error: 'prompt is required' });
+  }
+  await prisma.settings.update({ where: { id: 1 }, data: { ofiClaudePrompt: prompt, ofiPromptHash: '' } });
   res.json({ ok: true });
 });
 
