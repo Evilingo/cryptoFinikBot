@@ -26,6 +26,40 @@
 
 ---
 
+## Ограничение среды: Testnet vs Production
+
+> Актуально пока система работает на Bybit Testnet.
+
+### Проблема смешения источников данных
+
+| Данные | Источник |
+|---|---|
+| OBD снапшоты, midPrice, Signal outcome/pnl | **Testnet** order book (`stream-testnet.bybit.com`) |
+| RSI, ATR, trend5m/15m (Claude анализ) | **Production** klines (`api.bybit.com`) |
+
+Claude ставит SL/TP на основе production ATR и цен. Outcome (WIN/LOSS) резолвится по testnet ценам. Эти два потока живут независимо — testnet может случайно бить TP или SL в любой момент.
+
+### Влияние на типы аналитики
+
+**ObdSnapshot бэктест (`runBacktest`):**
+- Внутренне консистентен — всё из одного источника (testnet)
+- НО testnet ликвидность синтетическая, OBD паттерны не совпадают с production
+- Вывод: годится для проверки кода логики детекции, **не годится для выводов о стратегии**
+
+**Signal analytics (analitics_v2):**
+- WIN/LOSS определяется testnet ценами, SL/TP рассчитывались по production ценам
+- Win rate, avgPnl — артефакты testnet, не отражают реальный edge
+- Вывод: **данные с testnet не использовать для стратегических выводов**
+
+### Когда данные станут валидными
+
+После переключения на **production** с минимальным `autoTradeAmount` (1-2 USDT):
+- ObdSnapshot будет содержать реальные рыночные паттерны
+- Signal outcomes будут отражать реальное движение цены
+- analitics_v2 станет статистически значимой
+
+---
+
 ## Отчёт #1 — Базовый тест (Шаг 0)
 
 **Дата:** 2026-04-19
