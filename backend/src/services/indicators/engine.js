@@ -10,7 +10,7 @@ const obdState = new Map();
 
 // Deduplicate: no signal for same pair within 90 min
 const lastSignalTime = new Map();
-const SIGNAL_COOLDOWN = 90 * 60 * 1000;
+const SIGNAL_COOLDOWN = 15 * 60 * 1000;
 
 // OBD snapshot recording: save every 30s per symbol
 const lastSnapshotTime = new Map();
@@ -155,6 +155,9 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice, signalDirection)
         suggestedSl: analysis.suggestedSl,
         suggestedTp: analysis.suggestedTp,
         price: entryPrice,
+        rsi: analysis.rsi ?? null,
+        trend5m: analysis.trend5m ?? null,
+        trend15m: analysis.trend15m ?? null,
       },
     });
 

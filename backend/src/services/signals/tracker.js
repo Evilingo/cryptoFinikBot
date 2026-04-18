@@ -197,7 +197,7 @@ export async function runBacktest({ pairId, from, to, threshold = 10, slPct = 1.
   if (snapshots.length < 24) return { signals: [], stats: null, snapshotCount: snapshots.length };
 
   const { detectSignalFromHistory } = await import('../indicators/engine.js');
-  const COOLDOWN = 90 * 60 * 1000;
+  const COOLDOWN = 15 * 60 * 1000;
   const TIMEOUT = 60 * 60 * 1000; // 1h
 
   const signals = [];

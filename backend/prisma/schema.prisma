@@ -78,6 +78,9 @@ model Signal {
   claudeAnalysis String      @db.Text
   suggestedSl    Float?
   suggestedTp    Float?
+  rsi            Float?   // RSI(14) на 1m в момент сигнала
+  trend5m        String?  // UP | DOWN | FLAT
+  trend15m       String?  // UP | DOWN | FLAT
   outcome        String?     // WIN | LOSS | BREAKEVEN | PENDING
   outcomePrice   Float?      // цена при закрытии/срабатывании SL/TP
   outcomePnl     Float?      // P&L в процентах

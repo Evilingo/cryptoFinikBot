@@ -298,5 +298,10 @@ ${atr15mLine}
     });
   }
 
-  return validated;
+  return {
+    ...validated,
+    rsi: tech.rsi ?? null,
+    trend5m: trend5m?.direction ?? null,
+    trend15m: trend15m?.direction ?? null,
+  };
 }
