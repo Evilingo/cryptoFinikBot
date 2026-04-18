@@ -57,7 +57,7 @@ export async function processObdUpdate(pair, obd, midPrice) {
 
   if (!state.previous) return;
 
-  const signal = await detectSignal(state, symbol);
+  const signal = await detectSignal(state);
   if (!signal) return;
 
   // Cooldown check
@@ -364,50 +364,19 @@ export function detectSignalFromHistory(history, thresholdPct = 10, trendContext
   return null;
 }
 
-// Throttle debug logging per symbol: once per 30s
-const lastDebugLog = new Map();
-function shouldDebugLog(symbol) {
-  const now = Date.now();
-  if (now - (lastDebugLog.get(symbol) || 0) < 30_000) return false;
-  lastDebugLog.set(symbol, now);
-  return true;
-}
-
-async function detectSignal(state, symbol = '?') {
+async function detectSignal(state) {
   const thresholdPct = await getDipThreshold();
 
   const { current, history } = state;
-  if (history.length < 3) {
-    if (shouldDebugLog(symbol)) logger.info(`[detect:${symbol}] history too short: ${history.length}`);
-    return null;
-  }
+  if (history.length < 3) return null;
 
   const recent = history.slice(-12);
   const beforeWindow = history.slice(-24, -12);
-  if (beforeWindow.length < 3) {
-    if (shouldDebugLog(symbol)) logger.info(`[detect:${symbol}] beforeWindow too short: ${beforeWindow.length}, history: ${history.length}`);
-    return null;
-  }
+  if (beforeWindow.length < 3) return null;
 
-  // Trend gate via EMA-20 slope
   const trend = history.length >= EMA_PERIOD
     ? detectTrendStructure(history.map((s) => s.midPrice))
     : 'NEUTRAL';
-
-  if (shouldDebugLog(symbol)) {
-    const recentMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
-    const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
-    const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
-    const beforeMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
-    const dipRatios = OBD_KEYS.map((k) => beforeMaxes[k] > 0
-      ? ((beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] * 100).toFixed(2) + '%'
-      : 'n/a');
-    const spikeRatios = OBD_KEYS.map((k) => recentMaxes[k] > 0
-      ? ((recentMaxes[k] - beforeMins[k]) / recentMaxes[k] * 100).toFixed(2) + '%'
-      : 'n/a');
-    logger.info(`[detect:${symbol}] hist=${history.length} trend=${trend} threshold=${thresholdPct}% | dip=[${dipRatios}] spike=[${spikeRatios}] | cur obd1=${current.obd1?.toFixed(1)} obd2=${current.obd2?.toFixed(1)} obd3=${current.obd3?.toFixed(1)} obd4=${current.obd4?.toFixed(1)}`);
-  }
-
   if (trend === 'NEUTRAL') return null;
 
   // --- LONG ---
