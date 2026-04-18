@@ -160,6 +160,8 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice, signalDirection)
         trend15m: analysis.trend15m ?? null,
         atr: analysis.atr ?? null,
         atrPct: analysis.atrPct ?? null,
+        tpPct: analysis.suggestedTp ? Math.round(Math.abs(analysis.suggestedTp - entryPrice) / entryPrice * 10000) / 100 : null,
+        slPct: analysis.suggestedSl ? Math.round(Math.abs(entryPrice - analysis.suggestedSl) / entryPrice * 10000) / 100 : null,
       },
     });
 
