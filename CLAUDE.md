@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Engineering Principles
+
+**KISS — Keep It Simple, Stupid.** This is the primary engineering rule for this project.
+- Prefer fewer abstractions over more. Three similar lines beat a premature helper.
+- Debug code is temporary — remove it once the issue is diagnosed, not after.
+- Don't add parameters, flags, or layers unless the current code genuinely requires them.
+- When reviewing your own work, ask: "does this need to exist?"
+
 ## Project Overview
 
 BestTrader is a Binance Spot trading signal platform. It monitors order book depth (OBD) indicators across trading pairs, detects LONG/SHORT signals when all 4 OBD indicators move synchronously, then uses Claude AI to confirm/analyze the signal and suggest SL/TP levels. Results are tracked automatically.
