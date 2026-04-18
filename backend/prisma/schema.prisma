@@ -31,6 +31,7 @@ model Settings {
   exchange       String   @default("binance")
   bybitApiKey    String   @default("")
   bybitSecret    String   @default("")
+  ofiEnabled     Boolean  @default(false)
   updatedAt      DateTime @updatedAt
 }
 
@@ -65,10 +66,12 @@ model Signal {
   pair           TradingPair @relation(fields: [pairId], references: [id])
   direction      String
   confidence     Float?
-  obd1           Float
-  obd2           Float
-  obd3           Float
-  obd4           Float
+  strategy       String      @default("OBD")
+  ofiRatio       Float?
+  obd1           Float?
+  obd2           Float?
+  obd3           Float?
+  obd4           Float?
   price          Float
   claudeAnalysis String      @db.Text
   suggestedSl    Float?

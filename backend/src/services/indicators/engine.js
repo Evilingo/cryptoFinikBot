@@ -204,7 +204,7 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice, signalDirection)
   }
 }
 
-async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
+export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
   if (!settings?.autoTrade) return;
 

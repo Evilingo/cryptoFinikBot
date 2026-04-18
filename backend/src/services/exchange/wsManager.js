@@ -11,6 +11,8 @@ import { startUserDataStream, stopUserDataStream } from '../binance/userDataStre
 import { startBybitOrderBookWs, stopBybitOrderBookWs } from '../bybit/orderBookWs.js';
 import { startBybitWs, stopBybitWs } from '../bybit/websocket.js';
 import { startBybitUserDataStream, stopBybitUserDataStream } from '../bybit/userDataStream.js';
+import { startAggTradeWs, stopAggTradeWs } from '../binance/aggTradeWs.js';
+import { startBybitAggTradeWs, stopBybitAggTradeWs } from '../bybit/aggTradeWs.js';
 
 let currentExchange = 'binance';
 let switching = false;
@@ -26,6 +28,7 @@ export async function initExchangeWs(exchange) {
     logger.info('Starting Bybit WebSocket services');
     startBybitOrderBookWs();
     startBybitWs();
+    startBybitAggTradeWs();
     startBybitUserDataStream().catch((err) =>
       logger.warn('Bybit User Data Stream start failed', { error: err.message })
     );
@@ -33,6 +36,7 @@ export async function initExchangeWs(exchange) {
     logger.info('Starting Binance WebSocket services');
     startOrderBookWs();
     startBinanceWs();
+    startAggTradeWs();
     startUserDataStream().catch((err) =>
       logger.warn('User Data Stream start failed', { error: err.message })
     );
@@ -58,10 +62,12 @@ export async function switchExchangeWs(newExchange) {
     if (currentExchange === 'bybit') {
       stopBybitOrderBookWs();
       stopBybitWs();
+      stopBybitAggTradeWs();
       stopBybitUserDataStream();
     } else {
       stopOrderBookWs();
       stopBinanceWs();
+      stopAggTradeWs();
       stopUserDataStream();
     }
 
@@ -76,6 +82,7 @@ export async function switchExchangeWs(newExchange) {
       logger.info('Starting Bybit WebSocket services');
       startBybitOrderBookWs();
       startBybitWs();
+      startBybitAggTradeWs();
       startBybitUserDataStream().catch((err) =>
         logger.warn('Bybit User Data Stream start failed', { error: err.message })
       );
@@ -83,6 +90,7 @@ export async function switchExchangeWs(newExchange) {
       logger.info('Starting Binance WebSocket services');
       startOrderBookWs();
       startBinanceWs();
+      startAggTradeWs();
       startUserDataStream().catch((err) =>
         logger.warn('User Data Stream start failed', { error: err.message })
       );
@@ -97,8 +105,10 @@ export async function switchExchangeWs(newExchange) {
 export function stopAllExchangeWs() {
   stopOrderBookWs();
   stopBinanceWs();
+  stopAggTradeWs();
   stopUserDataStream();
   stopBybitOrderBookWs();
   stopBybitWs();
+  stopBybitAggTradeWs();
   stopBybitUserDataStream();
 }

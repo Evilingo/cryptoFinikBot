@@ -169,6 +169,62 @@ function validateSlTp(result, price, symbol = '') {
   return result;
 }
 
+export async function analyzeOfiSignal(pair, currentPrice, ofiDirection, ofiRatio) {
+  if (!anthropic) {
+    return { direction: ofiDirection, confidence: null, analysis: 'Claude not configured', suggestedSl: null, suggestedTp: null };
+  }
+  const [systemPrompt, { trend5m, trend15m, atr15m }] = await Promise.all([
+    getSystemPrompt(),
+    fetchHigherTimeframes(pair.monitorSymbol),
+  ]);
+
+  const atr15mLine = atr15m
+    ? `ATR(14) на 15m: ${atr15m.value} (${atr15m.pct}% от цены) — ИСПОЛЬЗУЙ ДЛЯ РАСЧЁТА SL/TP`
+    : 'ATR(15m): н/д';
+
+  const userMessage = `Пара для анализа: ${pair.monitorSymbol} (сигнал), торговля через ${pair.tradeSymbol}
+Текущая цена: ${currentPrice}
+
+Стратегия: Order Flow Imbalance (OFI)
+OFI направление: ${ofiDirection}
+OFI покупки за 60 сек: ${ofiRatio}% (>65% = давление покупателей, <35% = продавцов)
+
+Тренд на старших таймфреймах (последние 20 свечей):
+${formatHigherTf(trend5m, trend15m)}
+
+Размер для SL/TP (15m таймфрейм):
+${atr15mLine}
+
+На основе данных дай ответ строго в JSON:
+{
+  "direction": "LONG" | "SHORT" | "WAIT",
+  "confidence": 0-100,
+  "analysis": "краткое объяснение (2-3 предложения)",
+  "suggestedSl": число или null,
+  "suggestedTp": число или null
+}`;
+
+  logger.info('Calling Claude for OFI signal analysis', {
+    symbol: pair.monitorSymbol,
+    price: currentPrice,
+    ofiDirection,
+    ofiRatio,
+  });
+
+  const text = await callClaude(systemPrompt, userMessage);
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  const jsonText = jsonMatch ? jsonMatch[0] : text.trim();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return { direction: 'WAIT', confidence: 0, analysis: text, suggestedSl: null, suggestedTp: null };
+  }
+
+  return validateSlTp(parsed, currentPrice, pair.monitorSymbol);
+}
+
 export async function analyzeSignal(pair, obd, candles, currentPrice) {
   if (!anthropic) {
     logger.info('Claude API key not configured, skipping analysis', { symbol: pair.monitorSymbol });

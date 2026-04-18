@@ -44,8 +44,12 @@ export function formatSignalMessage(signal) {
     signal.suggestedTp ? `TP: ${signal.suggestedTp}` : '',
   ].filter(Boolean).join('  ');
 
+  const strategyLine = signal.strategy === 'OFI'
+    ? `OFI: ${signal.ofiRatio ?? '?'}% buy pressure`
+    : `OBD: ${signal.obd1} | ${signal.obd2} | ${signal.obd3} | ${signal.obd4}`;
+
   return `${arrow} <b>${signal.direction}</b> ${signal.monitorSymbol}${confidenceLine}
 Цена: ${signal.price}
-OBD: ${signal.obd1} | ${signal.obd2} | ${signal.obd3} | ${signal.obd4}
+${strategyLine}
 ${signal.claudeAnalysis}${slTpLine ? `\n${slTpLine}` : ''}`;
 }

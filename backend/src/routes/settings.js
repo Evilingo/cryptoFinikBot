@@ -28,6 +28,7 @@ router.get('/', authMiddleware, async (req, res) => {
     exchange: s.exchange || 'binance',
     bybitApiKey: s.bybitApiKey ? 'Configured ****' : 'Not set',
     bybitSecret: s.bybitSecret ? 'Configured ****' : 'Not set',
+    ofiEnabled: s.ofiEnabled ?? false,
   });
 });
 
@@ -143,6 +144,15 @@ router.put('/autotrade', authMiddleware, async (req, res) => {
   if (typeof allowShort === 'boolean') data.allowShort = allowShort;
   if (Object.keys(data).length === 0) return res.status(400).json({ error: 'No valid fields provided' });
   await prisma.settings.update({ where: { id: 1 }, data });
+  res.json({ ok: true });
+});
+
+router.put('/ofi', authMiddleware, async (req, res) => {
+  const { ofiEnabled } = req.body;
+  if (typeof ofiEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'ofiEnabled must be boolean' });
+  }
+  await prisma.settings.update({ where: { id: 1 }, data: { ofiEnabled } });
   res.json({ ok: true });
 });
 
