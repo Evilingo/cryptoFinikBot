@@ -100,6 +100,12 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
           pnl: outcomePnlRounded,
           outcomePrice,
         });
+
+        // Close any open Trade linked to this signal
+        prisma.trade.updateMany({
+          where: { signalId: signal.id, status: 'OPEN' },
+          data: { status: 'CLOSED', closedAt: new Date(), pnl: outcomePnlRounded },
+        }).catch((err) => logger.debug('Trade auto-close failed', { error: err.message, signalId: signal.id }));
       }
     } else {
       // Only update price tracking, no outcome to set
