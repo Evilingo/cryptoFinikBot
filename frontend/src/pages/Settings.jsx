@@ -35,6 +35,7 @@ export default function Settings() {
       setAutoTrade(data.autoTrade ?? false);
       setAutoTradeAmount(data.autoTradeAmount ?? 10);
       setMaxOpenTrades(data.maxOpenTrades ?? 1);
+      setEnableShort(data.allowShort ?? true);
       setTgToken(data.telegramToken || '');
       setTgChatId(data.telegramChatId || '');
     }).catch(() => {});
@@ -138,7 +139,7 @@ export default function Settings() {
 
   const saveAutoTrade = async () => {
     try {
-      await api.put('/settings/autotrade', { autoTrade, autoTradeAmount: Number(autoTradeAmount), maxOpenTrades: Number(maxOpenTrades) });
+      await api.put('/settings/autotrade', { autoTrade, autoTradeAmount: Number(autoTradeAmount), maxOpenTrades: Number(maxOpenTrades), allowShort: enableShort });
       showStatus(true, 'Auto-trade settings saved');
     } catch (err) {
       showStatus(false, err.response?.data?.error || 'Save failed');

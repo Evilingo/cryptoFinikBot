@@ -223,6 +223,12 @@ async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
   }
 
   const side = direction === 'LONG' ? 'BUY' : 'SELL';
+
+  if (side === 'SELL' && settings.allowShort === false) {
+    logger.info('Auto-trade SHORT skipped: SHORT signals disabled in settings');
+    return;
+  }
+
   const quantity = settings.autoTradeAmount / entryPrice;
 
   // For SHORT (SELL): check we have enough of the asset

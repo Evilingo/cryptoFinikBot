@@ -5,6 +5,8 @@ import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
 
 const BASE_URL = env.bybitTestnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
+// Market data is always fetched from production — testnet has synthetic/flat prices
+const PUBLIC_URL = 'https://api.bybit.com';
 const RECV_WINDOW = '5000';
 
 async function getKeys() {
@@ -170,7 +172,7 @@ const INTERVAL_MAP = {
 
 export async function getKlines(symbol, interval = '1m', limit = 100) {
   const bybitInterval = INTERVAL_MAP[interval] || '1';
-  const url = `${BASE_URL}/v5/market/kline?category=spot&symbol=${symbol}&interval=${bybitInterval}&limit=${limit}`;
+  const url = `${PUBLIC_URL}/v5/market/kline?category=spot&symbol=${symbol}&interval=${bybitInterval}&limit=${limit}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Bybit klines error: ${res.status}`);
   const data = await res.json();

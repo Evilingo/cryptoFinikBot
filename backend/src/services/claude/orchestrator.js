@@ -190,10 +190,10 @@ export async function analyzeSignal(pair, obd, candles, currentPrice) {
 Текущая цена: ${currentPrice}
 
 Order Book Depth индикаторы (0-100, >50 = давление покупателей):
-- OBD 2.5%/5%: ${obd.obd1}
-- OBD 5%/10%: ${obd.obd2}
-- OBD 5%/25%: ${obd.obd3}
-- OBD 10%/25%: ${obd.obd4}
+- obd1 (ближний спред): ${obd.obd1}
+- obd2 (средний спред): ${obd.obd2}
+- obd3 (средняя глубина): ${obd.obd3}
+- obd4 (широкая глубина): ${obd.obd4}
 
 Тренд на старших таймфреймах (последние 20 свечей):
 ${formatHigherTf(trend5m, trend15m)}
