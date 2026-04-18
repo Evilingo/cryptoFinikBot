@@ -292,8 +292,8 @@ async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
 }
 
 // OBD3/OBD4 are structural indicators — require 2× relative threshold
-const OBD_MULTIPLIERS = { obd1: 1, obd2: 1, obd3: 2, obd4: 2 };
 const OBD_KEYS = ['obd1', 'obd2', 'obd3', 'obd4'];
+const OBD_MIN_MATCH = 3; // 3 of 4 levels must confirm (obd4 is naturally stable)
 
 /**
  * Trend filter via EMA-20 slope on midPrice snapshots.
@@ -345,21 +345,21 @@ export function detectSignalFromHistory(history, thresholdPct = 10, trendContext
 
   const recentMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
   const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
-  const allDipped = OBD_KEYS.every((k) => {
+  const dippedCount = OBD_KEYS.filter((k) => {
     if (beforeMaxes[k] <= 0) return false;
-    return (beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] >= (thresholdPct * OBD_MULTIPLIERS[k]) / 100;
-  });
-  const allRecovering = OBD_KEYS.every((k) => current[k] > recentMins[k] + 2);
-  if (allDipped && allRecovering && (trendContext === null || trend === 'UP')) return 'LONG';
+    return (beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] >= thresholdPct / 100;
+  }).length;
+  const recoveringCount = OBD_KEYS.filter((k) => current[k] > recentMins[k] + 2).length;
+  if (dippedCount >= OBD_MIN_MATCH && recoveringCount >= OBD_MIN_MATCH && (trendContext === null || trend === 'UP')) return 'LONG';
 
   const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
   const beforeMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
-  const allSpiked = OBD_KEYS.every((k) => {
+  const spikedCount = OBD_KEYS.filter((k) => {
     if (recentMaxes[k] <= 0) return false;
-    return (recentMaxes[k] - beforeMins[k]) / recentMaxes[k] >= (thresholdPct * OBD_MULTIPLIERS[k]) / 100;
-  });
-  const allFalling = OBD_KEYS.every((k) => current[k] < recentMaxes[k] - 2);
-  if (allSpiked && allFalling && (trendContext === null || trend === 'DOWN')) return 'SHORT';
+    return (recentMaxes[k] - beforeMins[k]) / recentMaxes[k] >= thresholdPct / 100;
+  }).length;
+  const fallingCount = OBD_KEYS.filter((k) => current[k] < recentMaxes[k] - 2).length;
+  if (spikedCount >= OBD_MIN_MATCH && fallingCount >= OBD_MIN_MATCH && (trendContext === null || trend === 'DOWN')) return 'SHORT';
 
   return null;
 }
@@ -413,22 +413,22 @@ async function detectSignal(state, symbol = '?') {
   // --- LONG ---
   const recentMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
   const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
-  const allDipped = OBD_KEYS.every((k) => {
+  const dippedCount = OBD_KEYS.filter((k) => {
     if (beforeMaxes[k] <= 0) return false;
-    return (beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] >= (thresholdPct * OBD_MULTIPLIERS[k]) / 100;
-  });
-  const allRecovering = OBD_KEYS.every((k) => current[k] > recentMins[k] + 2);
-  if (allDipped && allRecovering && trend === 'UP') return 'LONG';
+    return (beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] >= thresholdPct / 100;
+  }).length;
+  const recoveringCount = OBD_KEYS.filter((k) => current[k] > recentMins[k] + 2).length;
+  if (dippedCount >= OBD_MIN_MATCH && recoveringCount >= OBD_MIN_MATCH && trend === 'UP') return 'LONG';
 
   // --- SHORT ---
   const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
   const beforeMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
-  const allSpiked = OBD_KEYS.every((k) => {
+  const spikedCount = OBD_KEYS.filter((k) => {
     if (recentMaxes[k] <= 0) return false;
-    return (recentMaxes[k] - beforeMins[k]) / recentMaxes[k] >= (thresholdPct * OBD_MULTIPLIERS[k]) / 100;
-  });
-  const allFalling = OBD_KEYS.every((k) => current[k] < recentMaxes[k] - 2);
-  if (allSpiked && allFalling && trend === 'DOWN') return 'SHORT';
+    return (recentMaxes[k] - beforeMins[k]) / recentMaxes[k] >= thresholdPct / 100;
+  }).length;
+  const fallingCount = OBD_KEYS.filter((k) => current[k] < recentMaxes[k] - 2).length;
+  if (spikedCount >= OBD_MIN_MATCH && fallingCount >= OBD_MIN_MATCH && trend === 'DOWN') return 'SHORT';
 
   return null;
 }
