@@ -36,6 +36,10 @@ export async function sendTelegramNotification(message, confidence = null) {
   }
 }
 
+function escapeHtml(text) {
+  return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 export function formatSignalMessage(signal) {
   const arrow = signal.direction === 'LONG' ? '🟢' : signal.direction === 'SHORT' ? '🔴' : '⚪';
   const confidenceLine = signal.confidence != null ? `\nУверенность: ${signal.confidence}%` : '';
@@ -51,5 +55,5 @@ export function formatSignalMessage(signal) {
   return `${arrow} <b>${signal.direction}</b> ${signal.monitorSymbol}${confidenceLine}
 Цена: ${signal.price}
 ${strategyLine}
-${signal.claudeAnalysis}${slTpLine ? `\n${slTpLine}` : ''}`;
+${escapeHtml(signal.claudeAnalysis)}${slTpLine ? `\n${slTpLine}` : ''}`;
 }
