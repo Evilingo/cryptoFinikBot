@@ -27,7 +27,9 @@ export default function Signals({ onOpenSignal }) {
     analysis: s.claudeAnalysis || s.analysis || '',
     sl: s.suggestedSl || s.stopLoss || s.sl,
     tp: s.suggestedTp || s.takeProfit || s.tp,
-    obd: [s.obd1 ?? 0, s.obd2 ?? 0, s.obd3 ?? 0, s.obd4 ?? 0],
+    strategy: s.strategy || 'OBD',
+    ofiRatio: s.ofiRatio ?? null,
+    obd: [s.obd1, s.obd2, s.obd3, s.obd4],
     pnl: s.outcomePnl ?? s.pnl ?? null,
     price: s.price ?? 0,
     createdAt: s.createdAt ? new Date(s.createdAt).getTime() : Date.now(),
@@ -56,7 +58,7 @@ export default function Signals({ onOpenSignal }) {
       <div className="topbar">
         <div className="topbar-title">
           <h1>Signals</h1>
-          <p>Signal history from OBD engine · confirmed by Claude</p>
+          <p>Signal history from OBD &amp; OFI engines · confirmed by Claude</p>
         </div>
         <div className="topbar-actions">
           <div style={{display: 'flex', alignItems: 'center', gap: 14}}>
@@ -101,7 +103,7 @@ export default function Signals({ onOpenSignal }) {
               <th>Direction</th>
               <th className="num">Price</th>
               <th className="num">Confidence</th>
-              <th className="num">OBD 1·2·3·4</th>
+              <th className="num">Strategy</th>
               <th>Outcome</th>
               <th className="num">PnL</th>
               <th>Claude analysis</th>
@@ -126,9 +128,19 @@ export default function Signals({ onOpenSignal }) {
                     <td className="num">${formatPrice(s.price)}</td>
                     <td className="num"><ConfidenceBadge value={s.confidence}/></td>
                     <td className="num">
-                      <span style={{color: 'var(--text-3)', fontSize: 11}}>
-                        {s.obd.map(v => v.toFixed(1)).join(' · ')}
-                      </span>
+                      {s.strategy === 'OFI' ? (
+                        <span style={{display: 'inline-flex', alignItems: 'center', gap: 5}}>
+                          <span style={{fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--primary)', background: 'var(--primary-soft)', padding: '1px 6px', borderRadius: 8}}>OFI</span>
+                          <span style={{color: 'var(--text-3)', fontSize: 11}}>{s.ofiRatio != null ? `${s.ofiRatio}%` : '—'}</span>
+                        </span>
+                      ) : (
+                        <span style={{display: 'inline-flex', alignItems: 'center', gap: 5}}>
+                          <span style={{fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-3)', background: 'var(--bg-2)', padding: '1px 6px', borderRadius: 8}}>OBD</span>
+                          <span style={{color: 'var(--text-3)', fontSize: 11}}>
+                            {s.obd.every(v => v != null) ? s.obd.map(v => v.toFixed(1)).join(' · ') : '—'}
+                          </span>
+                        </span>
+                      )}
                     </td>
                     <td><OutcomeBadge outcome={s.outcome}/></td>
                     <td className="num">
@@ -152,7 +164,11 @@ export default function Signals({ onOpenSignal }) {
                             </div>
                             <div className="analysis-full">{s.analysis}</div>
                             <div className="expanded-meta">
-                              <span>OBD: <strong className="mono">{s.obd.map(v => v.toFixed(1)).join(' | ')}</strong></span>
+                              {s.strategy === 'OFI' ? (
+                                <span>OFI ratio: <strong className="mono">{s.ofiRatio != null ? `${s.ofiRatio}% buy pressure` : '—'}</strong></span>
+                              ) : (
+                                <span>OBD: <strong className="mono">{s.obd.every(v => v != null) ? s.obd.map(v => v.toFixed(1)).join(' | ') : '—'}</strong></span>
+                              )}
                               {s.sl && <span>SL: <strong className="mono" style={{color: 'var(--short)'}}>${formatPrice(s.sl)}</strong></span>}
                               {s.tp && <span>TP: <strong className="mono" style={{color: 'var(--long)'}}>${formatPrice(s.tp)}</strong></span>}
                               {s.sl && s.tp && (
