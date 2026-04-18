@@ -296,25 +296,29 @@ const OBD_MULTIPLIERS = { obd1: 1, obd2: 1, obd3: 2, obd4: 2 };
 const OBD_KEYS = ['obd1', 'obd2', 'obd3', 'obd4'];
 
 /**
- * Detect trend structure from price series using local extrema (lookaround=2).
+ * Trend filter via EMA-20 slope on midPrice snapshots.
  * Returns 'UP', 'DOWN', or 'NEUTRAL'.
+ * NEUTRAL when |slope / price| < SLOPE_EPSILON (choppy / sideways).
  */
+const EMA_PERIOD = 20;
+const SLOPE_EPSILON = 0.00003; // 0.003% per snapshot — below this = sideways
+
 function detectTrendStructure(prices) {
-  if (prices.length < 10) return 'NEUTRAL';
-  const lows = [];
-  const highs = [];
-  for (let i = 2; i < prices.length - 2; i++) {
-    const p = prices[i];
-    if (p <= prices[i - 1] && p <= prices[i - 2] && p <= prices[i + 1] && p <= prices[i + 2]) lows.push(p);
-    if (p >= prices[i - 1] && p >= prices[i - 2] && p >= prices[i + 1] && p >= prices[i + 2]) highs.push(p);
+  if (prices.length < EMA_PERIOD) return 'NEUTRAL';
+  const k = 2 / (EMA_PERIOD + 1);
+  let ema = prices[0];
+  for (let i = 1; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
   }
-  const recentLows  = lows.slice(-4);
-  const recentHighs = highs.slice(-4);
-  const isUptrend   = recentLows.length  >= 2 && recentLows.every((v, i)  => i === 0 || v > recentLows[i - 1]);
-  const isDowntrend = recentHighs.length >= 2 && recentHighs.every((v, i) => i === 0 || v < recentHighs[i - 1]);
-  if (isUptrend && !isDowntrend)  return 'UP';
-  if (isDowntrend && !isUptrend)  return 'DOWN';
-  return 'NEUTRAL';
+  // Slope: compare last EMA to EMA computed one step earlier
+  let emaPrev = prices[0];
+  for (let i = 1; i < prices.length - 1; i++) {
+    emaPrev = prices[i] * k + emaPrev * (1 - k);
+  }
+  const slope = ema - emaPrev;
+  const relSlope = Math.abs(slope) / ema;
+  if (relSlope < SLOPE_EPSILON) return 'NEUTRAL';
+  return slope > 0 ? 'UP' : 'DOWN';
 }
 
 /**
