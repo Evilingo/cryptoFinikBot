@@ -30,6 +30,8 @@ export default function Signals({ onOpenSignal }) {
     strategy: s.strategy || 'OBD',
     ofiRatio: s.ofiRatio ?? null,
     obd: [s.obd1, s.obd2, s.obd3, s.obd4],
+    tpPct: s.tpPct ?? null,
+    slPct: s.slPct ?? null,
     pnl: s.outcomePnl ?? s.pnl ?? null,
     price: s.price ?? 0,
     createdAt: s.createdAt ? new Date(s.createdAt).getTime() : Date.now(),
@@ -178,8 +180,8 @@ export default function Signals({ onOpenSignal }) {
                               ) : (
                                 <span>OBD: <strong className="mono">{s.obd.every(v => v != null) ? s.obd.map(v => v.toFixed(1)).join(' | ') : '—'}</strong></span>
                               )}
-                              {s.sl && <span>SL: <strong className="mono" style={{color: 'var(--short)'}}>${formatPrice(s.sl)}</strong></span>}
-                              {s.tp && <span>TP: <strong className="mono" style={{color: 'var(--long)'}}>${formatPrice(s.tp)}</strong></span>}
+                              {s.sl && <span>SL: <strong className="mono" style={{color: 'var(--short)'}}>${formatPrice(s.sl)}{s.slPct != null ? ` (${s.slPct}%)` : ''}</strong></span>}
+                              {s.tp && <span>TP: <strong className="mono" style={{color: 'var(--long)'}}>${formatPrice(s.tp)}{s.tpPct != null ? ` (${s.tpPct}%)` : ''}</strong></span>}
                               {s.sl && s.tp && (
                                 <span>RR: <strong className="mono">1 : {(Math.abs(s.tp - s.price) / Math.abs(s.price - s.sl)).toFixed(2)}</strong></span>
                               )}
