@@ -158,6 +158,8 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice, signalDirection)
         rsi: analysis.rsi ?? null,
         trend5m: analysis.trend5m ?? null,
         trend15m: analysis.trend15m ?? null,
+        atr: analysis.atr ?? null,
+        atrPct: analysis.atrPct ?? null,
       },
     });
 

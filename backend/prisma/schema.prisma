@@ -81,6 +81,8 @@ model Signal {
   rsi            Float?   // RSI(14) на 1m в момент сигнала
   trend5m        String?  // UP | DOWN | FLAT
   trend15m       String?  // UP | DOWN | FLAT
+  atr            Float?   // ATR(14) на 15m в абсолютных единицах
+  atrPct         Float?   // ATR(14) на 15m в % от цены
   outcome        String?     // WIN | LOSS | BREAKEVEN | PENDING
   outcomePrice   Float?      // цена при закрытии/срабатывании SL/TP
   outcomePnl     Float?      // P&L в процентах

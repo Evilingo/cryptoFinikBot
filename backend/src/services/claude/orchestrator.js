@@ -303,5 +303,7 @@ ${atr15mLine}
     rsi: tech.rsi ?? null,
     trend5m: trend5m?.direction ?? null,
     trend15m: trend15m?.direction ?? null,
+    atr: atr15m?.value ?? null,
+    atrPct: atr15m?.pct ?? null,
   };
 }
