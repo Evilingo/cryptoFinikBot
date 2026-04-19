@@ -84,11 +84,9 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
           outcomePrice,
         });
 
-        // Close any open Trade linked to this signal
-        prisma.trade.updateMany({
-          where: { signalId: signal.id, status: 'OPEN' },
-          data: { status: 'CLOSED', closedAt: new Date(), pnl: outcomePnlRounded },
-        }).catch((err) => logger.debug('Trade auto-close failed', { error: err.message, signalId: signal.id }));
+        // Trade closure is handled exclusively by userDataStream (real FILLED events from exchange).
+        // Do not auto-close here — tracker resolves Signal outcome by midPrice simulation,
+        // but the actual exchange order may still be open (OCO pending).
       }
     } else {
       // Only update price tracking, no outcome to set
