@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>BestTrader — Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    padding: 40px;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  .header h1 {
+    font-size: 32px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #f0a500, #ff6b35);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.5px;
+  }
+  .header p {
+    color: #7d8590;
+    font-size: 14px;
+    margin-top: 8px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* ─── LAYOUT ─── */
+  .diagram {
+    display: grid;
+    grid-template-columns: 200px 1fr 200px;
+    grid-template-rows: auto auto auto auto;
+    gap: 0;
+    max-width: 1100px;
+    margin: 0 auto;
+    position: relative;
+  }
+
+  /* ─── BLOCKS ─── */
+  .block {
+    border-radius: 12px;
+    padding: 16px 20px;
+    position: relative;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .block-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    opacity: 0.5;
+    margin-bottom: 6px;
+  }
+
+  .block-name {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .block-desc {
+    font-size: 12px;
+    color: #7d8590;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    margin-top: 8px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ─── COLOR THEMES ─── */
+  .theme-exchange {
+    background: linear-gradient(135deg, #161b22, #1c2230);
+    border-color: #30363d;
+  }
+  .theme-exchange .block-name { color: #58a6ff; }
+  .tag-exchange { background: rgba(88,166,255,0.15); color: #58a6ff; }
+
+  .theme-signal {
+    background: linear-gradient(135deg, #1a1625, #221830);
+    border-color: #6e40c9;
+  }
+  .theme-signal .block-name { color: #bc8cff; }
+  .tag-signal { background: rgba(188,140,255,0.15); color: #bc8cff; }
+
+  .theme-claude {
+    background: linear-gradient(135deg, #1a2332, #1e2d45);
+    border-color: #1f6feb;
+  }
+  .theme-claude .block-name { color: #79c0ff; }
+  .tag-claude { background: rgba(121,192,255,0.15); color: #79c0ff; }
+
+  .theme-trade {
+    background: linear-gradient(135deg, #1a2a1a, #1e3520);
+    border-color: #2ea043;
+  }
+  .theme-trade .block-name { color: #56d364; }
+  .tag-trade { background: rgba(86,211,100,0.15); color: #56d364; }
+
+  .theme-db {
+    background: linear-gradient(135deg, #1e1e1e, #252525);
+    border-color: #484f58;
+  }
+  .theme-db .block-name { color: #e6edf3; }
+  .tag-db { background: rgba(230,237,243,0.1); color: #e6edf3; }
+
+  .theme-notify {
+    background: linear-gradient(135deg, #1e2a1a, #24341e);
+    border-color: #3fb950;
+  }
+  .theme-notify .block-name { color: #3fb950; }
+
+  .theme-ui {
+    background: linear-gradient(135deg, #1a1e2a, #1e2535);
+    border-color: #388bfd;
+  }
+  .theme-ui .block-name { color: #79c0ff; }
+
+  .theme-warn {
+    background: linear-gradient(135deg, #2a1e0d, #321f0a);
+    border-color: #d29922;
+  }
+  .theme-warn .block-name { color: #e3b341; }
+
+  /* ─── MAIN PIPELINE ─── */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    grid-column: 2;
+    grid-row: 1 / 5;
+  }
+
+  .pipeline-row {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px 0;
+    position: relative;
+  }
+
+  .pipeline-row:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -1px;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 24px;
+    background: linear-gradient(to bottom, #30363d, transparent);
+  }
+
+  .step {
+    flex: 1;
+    border-radius: 12px;
+    padding: 18px 22px;
+    border: 1px solid rgba(255,255,255,0.08);
+    position: relative;
+  }
+
+  .step-num {
+    position: absolute;
+    top: -10px;
+    left: 20px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #7d8590;
+    padding: 2px 10px;
+    letter-spacing: 1px;
+  }
+
+  .step-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .step-body {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .chip {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 500;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #8b949e;
+  }
+
+  .chip-highlight {
+    background: rgba(88,166,255,0.1);
+    border-color: rgba(88,166,255,0.3);
+    color: #79c0ff;
+  }
+
+  .chip-green {
+    background: rgba(86,211,100,0.1);
+    border-color: rgba(86,211,100,0.3);
+    color: #56d364;
+  }
+
+  .chip-purple {
+    background: rgba(188,140,255,0.1);
+    border-color: rgba(188,140,255,0.3);
+    color: #bc8cff;
+  }
+
+  .chip-orange {
+    background: rgba(227,179,65,0.1);
+    border-color: rgba(227,179,65,0.3);
+    color: #e3b341;
+  }
+
+  .chip-red {
+    background: rgba(248,81,73,0.1);
+    border-color: rgba(248,81,73,0.3);
+    color: #f85149;
+  }
+
+  .arrow-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 32px;
+    color: #30363d;
+    font-size: 20px;
+    position: relative;
+  }
+
+  .arrow-label {
+    position: absolute;
+    right: calc(50% - 80px);
+    font-size: 10px;
+    color: #484f58;
+    background: #0d1117;
+    padding: 1px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  /* ─── SIDE PANELS ─── */
+  .side-left {
+    grid-column: 1;
+    grid-row: 1 / 5;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-right: 12px;
+    padding-top: 60px;
+  }
+
+  .side-right {
+    grid-column: 3;
+    grid-row: 1 / 5;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-left: 12px;
+    padding-top: 60px;
+  }
+
+  .side-block {
+    border-radius: 10px;
+    padding: 14px 16px;
+    border: 1px solid rgba(255,255,255,0.07);
+    font-size: 12px;
+  }
+
+  .side-block-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    opacity: 0.5;
+    margin-bottom: 8px;
+  }
+
+  .side-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 5px;
+    color: #8b949e;
+  }
+
+  .side-item::before {
+    content: '·';
+    color: #484f58;
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  .connector {
+    position: absolute;
+    border: 1px dashed rgba(255,255,255,0.1);
+    pointer-events: none;
+  }
+
+  /* ─── BOTTOM ROW ─── */
+  .bottom-row {
+    display: flex;
+    gap: 12px;
+    max-width: 1100px;
+    margin: 12px auto 0;
+  }
+
+  .bottom-block {
+    flex: 1;
+    border-radius: 12px;
+    padding: 16px 20px;
+    border: 1px solid rgba(255,255,255,0.07);
+    font-size: 12px;
+    color: #8b949e;
+  }
+
+  .bottom-block h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #e6edf3;
+    margin-bottom: 8px;
+  }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .stat-val {
+    font-weight: 600;
+    color: #e6edf3;
+  }
+
+  /* ─── LEGEND ─── */
+  .legend {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    margin-top: 32px;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #7d8590;
+  }
+
+  .legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  /* ─── WARN BADGE ─── */
+  .warn-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: #e3b341;
+    background: rgba(227,179,65,0.1);
+    border: 1px solid rgba(227,179,65,0.2);
+    border-radius: 4px;
+    padding: 2px 7px;
+    margin-top: 6px;
+  }
+
+  .decision-split {
+    display: flex;
+    gap: 8px;
+  }
+
+  .decision-branch {
+    flex: 1;
+    border-radius: 8px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255,255,255,0.06);
+    font-size: 11px;
+  }
+
+  .branch-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, #30363d, transparent);
+    margin: 16px 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>BestTrader</h1>
+  <p>Automated Crypto Signal &amp; Trading System · Bybit Spot</p>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<!--                  PIPELINE                    -->
+<!-- ════════════════════════════════════════════ -->
+
+<div style="max-width:1100px; margin: 0 auto;">
+<div style="display: grid; grid-template-columns: 190px 1fr 190px; gap: 0;">
+
+  <!-- LEFT SIDE -->
+  <div style="padding-right:16px; padding-top:20px; display:flex; flex-direction:column; gap:12px;">
+
+    <div class="side-block" style="background:#161b22; border-color:#30363d;">
+      <div class="side-block-title">Data Sources</div>
+      <div class="side-item">Order Book WS (100ms)</div>
+      <div class="side-item">AggTrade Stream</div>
+      <div class="side-item">Klines 1m / 5m / 15m</div>
+      <div class="side-item">Market Tickers</div>
+    </div>
+
+    <div class="side-block" style="background:#161b22; border-color:#30363d; margin-top:40px;">
+      <div class="side-block-title">Signal Types</div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:12px; font-weight:700; color:#bc8cff; margin-bottom:3px;">OBD</div>
+        <div style="font-size:11px; color:#7d8590;">Order Book Depth<br>Mean-reversion<br>Cooldown: 15 min</div>
+      </div>
+      <div class="divider"></div>
+      <div>
+        <div style="font-size:12px; font-weight:700; color:#79c0ff; margin-bottom:3px;">OFI</div>
+        <div style="font-size:11px; color:#7d8590;">Order Flow Imbalance<br>Momentum<br>Cooldown: 90 min</div>
+      </div>
+    </div>
+
+    <div class="side-block" style="background:#161b22; border-color:#30363d; margin-top:20px;">
+      <div class="side-block-title">Account Type</div>
+      <div style="font-size:11px; color:#7d8590; line-height:1.7;">
+        <span style="color:#56d364;">UTA</span> — inline TP/SL<br>
+        <span style="color:#e3b341;">Classic</span> — separate orders<br>
+        &nbsp;&nbsp;· Limit TP (GTC)<br>
+        &nbsp;&nbsp;· Stop Market SL
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CENTER PIPELINE -->
+  <div style="display:flex; flex-direction:column; gap:0;">
+
+    <!-- STEP 1: MARKET DATA -->
+    <div class="step" style="background:linear-gradient(135deg,#161b22,#1a2030); border-color:#30363d; margin-bottom:0; border-radius:12px 12px 0 0;">
+      <div class="step-num">STEP 1</div>
+      <div class="step-title" style="color:#58a6ff;">📡 Bybit Exchange</div>
+      <div class="step-body">
+        <span class="chip chip-highlight">WebSocket Depth @100ms</span>
+        <span class="chip chip-highlight">AggTrade Stream</span>
+        <span class="chip">Private WS /v5/private</span>
+        <span class="chip">REST API</span>
+      </div>
+    </div>
+
+    <div class="arrow-row">↓<span class="arrow-label">OBD values / trade volume</span></div>
+
+    <!-- STEP 2: SIGNAL DETECTION -->
+    <div class="step" style="background:linear-gradient(135deg,#1a1625,#221830); border-color:#6e40c9;">
+      <div class="step-num">STEP 2</div>
+      <div class="step-title" style="color:#bc8cff;">🔍 Signal Detection Engine</div>
+      <div class="step-body" style="margin-bottom:10px;">
+        <span class="chip chip-purple">OBD: 4-level depth imbalance</span>
+        <span class="chip chip-purple">OFI: buy/sell volume ratio</span>
+        <span class="chip">EMA-20 trend filter</span>
+        <span class="chip">Cooldown guard</span>
+      </div>
+      <div style="font-size:11px; color:#7d8590;">
+        OBD LONG: все 4 уровня OBD синхронно дипнули &gt; threshold% → начали восстанавливаться<br>
+        OFI LONG: buyVol / total &gt; 65% за последние 60 секунд (мин. 15 сделок)
+      </div>
+    </div>
+
+    <div class="arrow-row">↓<span class="arrow-label">Signal saved to DB (Analyzing...)</span></div>
+
+    <!-- STEP 3: CLAUDE -->
+    <div class="step" style="background:linear-gradient(135deg,#0d1826,#0f2040); border-color:#1f6feb;">
+      <div class="step-num">STEP 3</div>
+      <div class="step-title" style="color:#79c0ff;">🤖 Claude AI Analysis</div>
+      <div class="step-body" style="margin-bottom:10px;">
+        <span class="chip chip-highlight">RSI(14)</span>
+        <span class="chip chip-highlight">ATR(14) on 15m</span>
+        <span class="chip chip-highlight">Trend 5m / 15m</span>
+        <span class="chip">Last 20 candles 1m</span>
+        <span class="chip">Volume pattern</span>
+      </div>
+      <div style="font-size:11px; color:#7d8590; margin-bottom:10px;">
+        Модель: claude-sonnet-4-6 · Retry: 3× (5s / 10s / 20s) · validateSlTp(): RR ≥ 2.0, net TP ≥ 0.4%
+      </div>
+      <!-- Decision -->
+      <div class="decision-split">
+        <div class="decision-branch" style="background:rgba(248,81,73,0.07); border-color:rgba(248,81,73,0.2);">
+          <div class="branch-label" style="color:#f85149;">⏸ WAIT</div>
+          <div style="font-size:10px; color:#7d8590;">confidence &lt; 65<br>RSI extreme<br>RR не проходит</div>
+        </div>
+        <div style="display:flex; align-items:center; color:#484f58; font-size:18px;">→</div>
+        <div class="decision-branch" style="background:rgba(86,211,100,0.07); border-color:rgba(86,211,100,0.2);">
+          <div class="branch-label" style="color:#56d364;">▶ TRADE</div>
+          <div style="font-size:10px; color:#7d8590;">confidence ≥ 65<br>direction + SL/TP<br>Telegram ✅</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row">↓<span class="arrow-label">autoTrade=ON + confidence ≥ minConfidence</span></div>
+
+    <!-- STEP 4: ORDER PLACEMENT -->
+    <div class="step" style="background:linear-gradient(135deg,#0d1a0d,#102010); border-color:#2ea043;">
+      <div class="step-num">STEP 4</div>
+      <div class="step-title" style="color:#56d364;">💰 Order Placement · Bybit Spot</div>
+      <div class="step-body" style="margin-bottom:10px;">
+        <span class="chip chip-green">Market Entry</span>
+        <span class="chip chip-green">Limit TP (GTC)</span>
+        <span class="chip chip-green">Stop Market SL</span>
+        <span class="chip">quantity = $amount / price</span>
+        <span class="chip">+300ms → avgPrice</span>
+      </div>
+      <div style="font-size:11px; color:#7d8590;">
+        Trade saved to DB · status=OPEN · Telegram "🤖 Авто-сделка открыта"
+      </div>
+    </div>
+
+    <div class="arrow-row">↓<span class="arrow-label">position open on exchange</span></div>
+
+    <!-- STEP 5: EXIT -->
+    <div class="step" style="background:linear-gradient(135deg,#1a1200,#201500); border-color:#d29922; border-radius:0 0 12px 12px;">
+      <div class="step-num">STEP 5</div>
+      <div class="step-title" style="color:#e3b341;">📤 Position Exit</div>
+      <div class="decision-split">
+        <div class="decision-branch" style="background:rgba(86,211,100,0.07); border-color:rgba(86,211,100,0.2);">
+          <div class="branch-label" style="color:#56d364;">✅ TP Hit</div>
+          <div style="font-size:10px; color:#7d8590;">Limit order filled<br>Bybit WS → fill event<br>Trade: CLOSED WIN</div>
+        </div>
+        <div class="decision-branch" style="background:rgba(248,81,73,0.07); border-color:rgba(248,81,73,0.2);">
+          <div class="branch-label" style="color:#f85149;">❌ SL Hit</div>
+          <div style="font-size:10px; color:#7d8590;">Stop Market triggered<br>Bybit WS → fill event<br>Trade: CLOSED LOSS</div>
+        </div>
+        <div class="decision-branch" style="background:rgba(255,255,255,0.03); border-color:rgba(255,255,255,0.08);">
+          <div class="branch-label" style="color:#8b949e;">⏰ Timeout</div>
+          <div style="font-size:10px; color:#7d8590;">1h tracker check<br>midPrice sim<br>Signal resolved</div>
+        </div>
+      </div>
+      <div style="margin-top:10px; font-size:11px; color:#7d8590;">
+        cancelAllOpenOrders(symbol) · PnL calc · Signal outcome · Telegram "✅/❌ Сделка закрыта"
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT SIDE -->
+  <div style="padding-left:16px; padding-top:20px; display:flex; flex-direction:column; gap:12px;">
+
+    <div class="side-block" style="background:#161b22; border-color:#30363d;">
+      <div class="side-block-title">🛡 Auth & Security</div>
+      <div class="side-item">JWT via WS token</div>
+      <div class="side-item">authMiddleware REST</div>
+      <div class="side-item">AES-256-GCM keys</div>
+      <div class="side-item">Rate limiting</div>
+    </div>
+
+    <div class="side-block" style="background:#161b22; border-color:#3fb950; margin-top:40px;">
+      <div class="side-block-title" style="color:#3fb950;">📱 Telegram Bot</div>
+      <div style="font-size:11px; color:#7d8590; line-height:1.8;">
+        Signal detected<br>
+        Авто-сделка открыта<br>
+        TP / SL закрытие<br>
+        SHORT пропущен<br>
+        <br>
+        Команды:<br>
+        /positions<br>
+        /stats
+      </div>
+    </div>
+
+    <div class="side-block" style="background:#161b22; border-color:#388bfd; margin-top:8px;">
+      <div class="side-block-title" style="color:#79c0ff;">🖥 Dashboard UI</div>
+      <div style="font-size:11px; color:#7d8590; line-height:1.8;">
+        Live OBD charts<br>
+        Kline candles<br>
+        Signal feed (WS)<br>
+        Trades history<br>
+        Performance stats<br>
+        Backtest runner<br>
+        Settings panel
+      </div>
+    </div>
+
+    <div class="side-block" style="background:#1a1205; border-color:#d29922; margin-top:8px;">
+      <div class="side-block-title" style="color:#e3b341;">⚠ Known Issues</div>
+      <div style="font-size:11px; color:#e3b341; line-height:1.8; opacity:0.8;">
+        findFirst без ORDER BY<br>
+        cancelAll = ядерная бомба<br>
+        SL fire-and-forget<br>
+        Нет reconciliation<br>
+        PnL без комиссий
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<!--                BOTTOM ROW                    -->
+<!-- ════════════════════════════════════════════ -->
+
+<div class="bottom-row" style="max-width:1100px; margin: 16px auto 0;">
+
+  <div class="bottom-block" style="background:#161b22; border-color:#30363d;">
+    <h3>🗄 Database · PostgreSQL</h3>
+    <div class="stat-row"><span>Signal</span><span class="stat-val" style="color:#bc8cff;">direction, confidence, SL/TP, outcome, RSI, ATR</span></div>
+    <div class="stat-row"><span>Trade</span><span class="stat-val" style="color:#56d364;">symbol, side, qty, price, status, pnl, orderId</span></div>
+    <div class="stat-row"><span>ObdSnapshot</span><span class="stat-val" style="color:#58a6ff;">obd1-4, midPrice · каждые 30s · индекс (pair, time)</span></div>
+    <div class="stat-row"><span>Settings</span><span class="stat-val">threshold, confidence, autoTrade, maxTrades, prompts</span></div>
+  </div>
+
+  <div class="bottom-block" style="background:#161b22; border-color:#30363d;">
+    <h3>📊 Analytics & Backtesting</h3>
+    <div class="stat-row"><span>Данные</span><span class="stat-val">ObdSnapshot replay</span></div>
+    <div class="stat-row"><span>Метрики</span><span class="stat-val">Winrate, PnL, Drawdown, Sharpe</span></div>
+    <div class="stat-row"><span>Режимы</span><span class="stat-val">LONG / SHORT / All</span></div>
+    <div class="stat-row"><span>Optimize</span><span class="stat-val">threshold × SL% × TP% sweep</span></div>
+    <div class="stat-row"><span>Analytics v2</span><span class="stat-val" style="color:#56d364;">RSI, trend, ATR сохраняются с 19.04.2026</span></div>
+  </div>
+
+  <div class="bottom-block" style="background:#161b22; border-color:#30363d;">
+    <h3>⚙️ Параметры системы</h3>
+    <div class="stat-row"><span>OBD порог</span><span class="stat-val">dipThreshold = 10%</span></div>
+    <div class="stat-row"><span>Min confidence</span><span class="stat-val">65%</span></div>
+    <div class="stat-row"><span>RR минимум</span><span class="stat-val">≥ 2.0 (после 0.2% fee)</span></div>
+    <div class="stat-row"><span>Позиция</span><span class="stat-val">$9 USDT / сделка</span></div>
+    <div class="stat-row"><span>Пары</span><span class="stat-val">BTC, ETH, SOL, BNB</span></div>
+    <div class="stat-row"><span>Break-even WR</span><span class="stat-val">~38% при SL1.5 TP3</span></div>
+  </div>
+
+</div>
+
+<!-- LEGEND -->
+<div class="legend" style="max-width:1100px; margin:24px auto 0;">
+  <div class="legend-item"><div class="legend-dot" style="background:#58a6ff;"></div>Exchange / Market Data</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#bc8cff;"></div>Signal Detection</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#79c0ff;"></div>Claude AI</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#56d364;"></div>Trading</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#e3b341;"></div>Known Issues</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3fb950;"></div>Notifications</div>
+  <div style="font-size:11px; color:#484f58; margin-left:20px;">BestTrader v2 · 2026-04-19</div>
+</div>
+
+</body>
+</html>

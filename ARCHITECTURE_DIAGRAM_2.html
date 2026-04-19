@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>BestTrader — System Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  svg text { user-select: none; }
+</style>
+</head>
+<body>
+
+<svg width="960" height="860" viewBox="0 0 960 860">
+  <defs>
+
+    <!-- Градиенты узлов -->
+    <radialGradient id="gCenter" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#2d6ae0"/>
+      <stop offset="100%" stop-color="#1a3a8f"/>
+    </radialGradient>
+    <radialGradient id="gExchange" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#2ea8e0"/>
+      <stop offset="100%" stop-color="#0d5a8f"/>
+    </radialGradient>
+    <radialGradient id="gSignal" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#9b6ee0"/>
+      <stop offset="100%" stop-color="#4a1a9f"/>
+    </radialGradient>
+    <radialGradient id="gClaude" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#e07a2e"/>
+      <stop offset="100%" stop-color="#8f3d0d"/>
+    </radialGradient>
+    <radialGradient id="gTelegram" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#2eb850"/>
+      <stop offset="100%" stop-color="#0d6a25"/>
+    </radialGradient>
+    <radialGradient id="gDB" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#607080"/>
+      <stop offset="100%" stop-color="#2a3540"/>
+    </radialGradient>
+    <radialGradient id="gDash" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#4a90d9"/>
+      <stop offset="100%" stop-color="#1a4580"/>
+    </radialGradient>
+
+    <!-- Фон внешнего круга -->
+    <radialGradient id="gBg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#141c2a"/>
+      <stop offset="100%" stop-color="#0d1117"/>
+    </radialGradient>
+
+    <!-- Маркеры стрелок -->
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#4a9eff"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#f0903a"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#3fba5a"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#a070e0"/>
+    </marker>
+    <marker id="arrowGray" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#6080a0"/>
+    </marker>
+    <marker id="arrowBlueRev" markerWidth="8" markerHeight="8" refX="2" refY="3" orient="auto">
+      <path d="M8,0 L8,6 L0,3 z" fill="#4a9eff"/>
+    </marker>
+
+    <!-- Фильтр тени для узлов -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="shadowLight" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+  </defs>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!--              BACKGROUND                        -->
+  <!-- ══════════════════════════════════════════════ -->
+
+  <rect width="960" height="860" fill="#0d1117"/>
+
+  <!-- Outer decorative ring -->
+  <circle cx="480" cy="450" r="345" fill="url(#gBg)" stroke="#1e2d42" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.7"/>
+
+  <!-- Subtle inner ring -->
+  <circle cx="480" cy="450" r="220" fill="none" stroke="#1e2d42" stroke-width="1" stroke-dasharray="3 8" opacity="0.4"/>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!--    SATELLITE POSITIONS (orbit R=225):          -->
+  <!--  N1 top      (480, 225)                        -->
+  <!--  N2 top-R    (675, 337)                        -->
+  <!--  N3 bot-R    (675, 563)                        -->
+  <!--  N4 bottom   (480, 675)                        -->
+  <!--  N5 bot-L    (285, 563)                        -->
+  <!--  N6 top-L    (285, 337)                        -->
+  <!--  Center      (480, 450)                        -->
+  <!-- ══════════════════════════════════════════════ -->
+
+  <!-- ───────────────────────────────────────── -->
+  <!--   OUTER RING ARROWS (pipeline flow)       -->
+  <!-- Orange = trade/order lifecycle            -->
+  <!-- ───────────────────────────────────────── -->
+
+  <!-- N6 → N1: Market data feeds signal engine -->
+  <path d="M 314,313 Q 397,235 451,252" stroke="#f0903a" stroke-width="2" fill="none"
+        marker-end="url(#arrowOrange)" opacity="0.7" stroke-dasharray="5 3"/>
+
+  <!-- N1 → N2: Exchange provides data for Claude context -->
+  <path d="M 509,252 Q 563,235 646,313" stroke="#f0903a" stroke-width="2" fill="none"
+        marker-end="url(#arrowOrange)" opacity="0.7" stroke-dasharray="5 3"/>
+
+  <!-- N3 → N4: Telegram confirms → DB logs -->
+  <path d="M 664,592 Q 602,648 509,660" stroke="#6080a0" stroke-width="1.5" fill="none"
+        marker-end="url(#arrowGray)" opacity="0.5" stroke-dasharray="4 4"/>
+
+  <!-- N4 → N5: DB feeds Dashboard -->
+  <path d="M 451,660 Q 397,648 296,592" stroke="#4a9eff" stroke-width="2" fill="none"
+        marker-end="url(#arrowBlue)" opacity="0.7" stroke-dasharray="5 3"/>
+
+  <!-- N5 → N6: Dashboard reads historical, feeds context -->
+  <path d="M 285,535 Q 250,450 285,365" stroke="#6080a0" stroke-width="1.5" fill="none"
+        marker-end="url(#arrowGray)" opacity="0.4" stroke-dasharray="4 5"/>
+
+  <!-- ───────────────────────────────────────── -->
+  <!--   CENTER ↔ SATELLITE ARROWS               -->
+  <!-- ───────────────────────────────────────── -->
+
+  <!-- CENTER ↔ N1 (Bybit Exchange) — double arrow -->
+  <!-- Market data IN (Exchange→Core) -->
+  <line x1="472" y1="290" x2="472" y2="365" stroke="#4a9eff" stroke-width="2.5"
+        marker-end="url(#arrowBlue)" opacity="0.9"/>
+  <!-- Orders OUT (Core→Exchange) -->
+  <line x1="488" y1="365" x2="488" y2="290" stroke="#3fba5a" stroke-width="2.5"
+        marker-end="url(#arrowGreen)" opacity="0.9"/>
+
+  <!-- CENTER ↔ N2 (Claude AI) — request/response -->
+  <!-- Request OUT -->
+  <line x1="552" y1="366" x2="620" y2="326" stroke="#4a9eff" stroke-width="2.5"
+        marker-end="url(#arrowBlue)" opacity="0.9"/>
+  <!-- Response IN -->
+  <line x1="614" y1="338" x2="546" y2="378" stroke="#f0903a" stroke-width="2.5"
+        marker-end="url(#arrowOrange)" opacity="0.9"/>
+
+  <!-- CENTER → N3 (Telegram) — notifications only OUT -->
+  <line x1="554" y1="478" x2="622" y2="518" stroke="#3fba5a" stroke-width="2.5"
+        marker-end="url(#arrowGreen)" opacity="0.9"/>
+
+  <!-- CENTER ↔ N4 (PostgreSQL) — read/write -->
+  <!-- Write OUT -->
+  <line x1="472" y1="535" x2="472" y2="610" stroke="#4a9eff" stroke-width="2.5"
+        marker-end="url(#arrowBlue)" opacity="0.9"/>
+  <!-- Read IN -->
+  <line x1="488" y1="610" x2="488" y2="535" stroke="#6080a0" stroke-width="2"
+        marker-end="url(#arrowGray)" opacity="0.8"/>
+
+  <!-- CENTER → N5 (Dashboard) — WS broadcast OUT -->
+  <line x1="412" y1="478" x2="344" y2="518" stroke="#4a9eff" stroke-width="2.5"
+        marker-end="url(#arrowBlue)" opacity="0.9"/>
+
+  <!-- CENTER ↔ N6 (Signal Engine) — signal data -->
+  <!-- OBD data OUT to signal engine -->
+  <line x1="400" y1="420" x2="345" y2="385" stroke="#4a9eff" stroke-width="2.5"
+        marker-end="url(#arrowBlue)" opacity="0.9"/>
+  <!-- Signal detected IN -->
+  <line x1="347" y1="373" x2="402" y2="408" stroke="#a070e0" stroke-width="2.5"
+        marker-end="url(#arrowPurple)" opacity="0.9"/>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!--              SATELLITE NODES                   -->
+  <!-- ══════════════════════════════════════════════ -->
+
+  <!-- N1: Bybit Exchange (top) -->
+  <g filter="url(#shadow)">
+    <circle cx="480" cy="225" r="68" fill="url(#gExchange)" stroke="#3a9ed0" stroke-width="2"/>
+  </g>
+  <text x="480" y="210" text-anchor="middle" font-size="13" font-weight="700" fill="white">Bybit</text>
+  <text x="480" y="227" text-anchor="middle" font-size="13" font-weight="700" fill="white">Exchange</text>
+  <text x="480" y="246" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.65)">market data · orders</text>
+
+  <!-- N2: Claude AI (top-right) -->
+  <g filter="url(#shadow)">
+    <circle cx="675" cy="337" r="68" fill="url(#gClaude)" stroke="#d07030" stroke-width="2"/>
+  </g>
+  <text x="675" y="322" text-anchor="middle" font-size="13" font-weight="700" fill="white">Claude AI</text>
+  <text x="675" y="340" text-anchor="middle" font-size="12" font-weight="600" fill="white">Analysis</text>
+  <text x="675" y="358" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.65)">claude-sonnet-4-6</text>
+
+  <!-- N3: Telegram (bottom-right) -->
+  <g filter="url(#shadow)">
+    <circle cx="675" cy="563" r="68" fill="url(#gTelegram)" stroke="#30a050" stroke-width="2"/>
+  </g>
+  <text x="675" y="548" text-anchor="middle" font-size="13" font-weight="700" fill="white">Telegram</text>
+  <text x="675" y="566" text-anchor="middle" font-size="13" font-weight="700" fill="white">Bot</text>
+  <text x="675" y="584" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.65)">alerts · commands</text>
+
+  <!-- N4: PostgreSQL (bottom) -->
+  <g filter="url(#shadow)">
+    <circle cx="480" cy="675" r="68" fill="url(#gDB)" stroke="#506070" stroke-width="2"/>
+  </g>
+  <text x="480" y="660" text-anchor="middle" font-size="13" font-weight="700" fill="white">PostgreSQL</text>
+  <text x="480" y="678" text-anchor="middle" font-size="12" font-weight="600" fill="white">Database</text>
+  <text x="480" y="696" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.65)">Signal · Trade · OBD</text>
+
+  <!-- N5: Dashboard UI (bottom-left) -->
+  <g filter="url(#shadow)">
+    <circle cx="285" cy="563" r="68" fill="url(#gDash)" stroke="#3070c0" stroke-width="2"/>
+  </g>
+  <text x="285" y="548" text-anchor="middle" font-size="13" font-weight="700" fill="white">Dashboard</text>
+  <text x="285" y="566" text-anchor="middle" font-size="13" font-weight="700" fill="white">UI</text>
+  <text x="285" y="584" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.65)">React · WebSocket</text>
+
+  <!-- N6: Signal Engine (top-left) -->
+  <g filter="url(#shadow)">
+    <circle cx="285" cy="337" r="68" fill="url(#gSignal)" stroke="#7050c0" stroke-width="2"/>
+  </g>
+  <text x="285" y="318" text-anchor="middle" font-size="13" font-weight="700" fill="white">Signal</text>
+  <text x="285" y="336" text-anchor="middle" font-size="13" font-weight="700" fill="white">Engine</text>
+  <text x="285" y="354" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.65)">OBD · OFI detection</text>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!--              CENTER NODE                       -->
+  <!-- ══════════════════════════════════════════════ -->
+
+  <!-- Glow ring -->
+  <circle cx="480" cy="450" r="100" fill="none" stroke="#2d6ae0" stroke-width="1" opacity="0.3"/>
+  <circle cx="480" cy="450" r="106" fill="none" stroke="#2d6ae0" stroke-width="0.5" opacity="0.15"/>
+
+  <g filter="url(#shadow)">
+    <circle cx="480" cy="450" r="95" fill="url(#gCenter)" stroke="#4070d0" stroke-width="2.5"/>
+  </g>
+  <text x="480" y="430" text-anchor="middle" font-size="14" font-weight="800" fill="white" letter-spacing="0.5">Trading</text>
+  <text x="480" y="450" text-anchor="middle" font-size="14" font-weight="800" fill="white" letter-spacing="0.5">Core</text>
+  <text x="480" y="472" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.6)">engine.js · ofiEngine.js</text>
+  <text x="480" y="487" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.6)">userDataStream.js</text>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!--   ARROW LABELS                                 -->
+  <!-- ══════════════════════════════════════════════ -->
+
+  <!-- Core ↔ Exchange labels -->
+  <rect x="396" y="306" width="70" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="431" y="318" text-anchor="middle" font-size="9" fill="#4a9eff">OB depth</text>
+
+  <rect x="396" y="326" width="70" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="431" y="338" text-anchor="middle" font-size="9" fill="#3fba5a">placeOrder</text>
+
+  <!-- Core ↔ Claude labels -->
+  <rect x="554" y="325" width="68" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="588" y="337" text-anchor="middle" font-size="9" fill="#4a9eff">RSI·ATR·trend</text>
+
+  <rect x="554" y="345" width="68" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="588" y="357" text-anchor="middle" font-size="9" fill="#f0903a">direction·SL/TP</text>
+
+  <!-- Core → Telegram label -->
+  <rect x="560" y="482" width="62" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="591" y="494" text-anchor="middle" font-size="9" fill="#3fba5a">notifications</text>
+
+  <!-- Core ↔ DB labels -->
+  <rect x="396" y="558" width="70" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="431" y="570" text-anchor="middle" font-size="9" fill="#4a9eff">write Signal/Trade</text>
+
+  <rect x="396" y="576" width="70" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="431" y="588" text-anchor="middle" font-size="9" fill="#6080a0">read settings</text>
+
+  <!-- Core → Dashboard label -->
+  <rect x="320" y="482" width="68" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="354" y="494" text-anchor="middle" font-size="9" fill="#4a9eff">WS broadcast</text>
+
+  <!-- Core ↔ Signal Engine labels -->
+  <rect x="318" y="380" width="68" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="352" y="392" text-anchor="middle" font-size="9" fill="#4a9eff">OBD state</text>
+
+  <rect x="318" y="398" width="68" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="352" y="410" text-anchor="middle" font-size="9" fill="#a070e0">LONG/SHORT</text>
+
+  <!-- DB → Dashboard outer ring label -->
+  <rect x="355" y="648" width="72" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="391" y="660" text-anchor="middle" font-size="9" fill="#4a9eff">REST API · history</text>
+
+  <!-- Exchange → SignalEngine outer ring label -->
+  <rect x="296" y="254" width="72" height="16" rx="4" fill="#0d1117" opacity="0.85"/>
+  <text x="332" y="266" text-anchor="middle" font-size="9" fill="#f0903a">aggTrade stream</text>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!--              TITLE                             -->
+  <!-- ══════════════════════════════════════════════ -->
+
+  <text x="480" y="44" text-anchor="middle" font-size="26" font-weight="800" fill="white"
+        letter-spacing="-0.5">BestTrader</text>
+  <text x="480" y="68" text-anchor="middle" font-size="13" fill="#7d8590"
+        letter-spacing="3">SYSTEM ARCHITECTURE · BYBIT SPOT · 2026</text>
+
+  <!-- Divider -->
+  <line x1="320" y1="80" x2="640" y2="80" stroke="#1e2d42" stroke-width="1"/>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!--              LEGEND                            -->
+  <!-- ══════════════════════════════════════════════ -->
+
+  <g transform="translate(180, 800)">
+    <!-- Blue arrow -->
+    <line x1="0" y1="10" x2="28" y2="10" stroke="#4a9eff" stroke-width="2" marker-end="url(#arrowBlue)"/>
+    <text x="34" y="14" font-size="11" fill="#7d8590">Data / Read</text>
+
+    <!-- Green arrow -->
+    <line x1="120" y1="10" x2="148" y2="10" stroke="#3fba5a" stroke-width="2" marker-end="url(#arrowGreen)"/>
+    <text x="154" y="14" font-size="11" fill="#7d8590">Orders / Action</text>
+
+    <!-- Orange arrow -->
+    <line x1="270" y1="10" x2="298" y2="10" stroke="#f0903a" stroke-width="2" marker-end="url(#arrowOrange)"/>
+    <text x="304" y="14" font-size="11" fill="#7d8590">AI Response / Flow</text>
+
+    <!-- Purple arrow -->
+    <line x1="440" y1="10" x2="468" y2="10" stroke="#a070e0" stroke-width="2" marker-end="url(#arrowPurple)"/>
+    <text x="474" y="14" font-size="11" fill="#7d8590">Signal Detected</text>
+
+    <!-- Gray dashed -->
+    <line x1="590" y1="10" x2="618" y2="10" stroke="#6080a0" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowGray)"/>
+    <text x="624" y="14" font-size="11" fill="#7d8590">Secondary / Passive</text>
+  </g>
+
+</svg>
+
+</body>
+</html>
