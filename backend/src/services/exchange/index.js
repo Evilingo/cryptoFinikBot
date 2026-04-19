@@ -59,3 +59,8 @@ export async function getOrderBook(symbol, limit) {
   const { getOrderBook } = await getAdapter();
   return getOrderBook(symbol, limit);
 }
+
+export async function cancelAllOpenOrders(symbol) {
+  const { cancelAllOpenOrders } = await getAdapter();
+  return cancelAllOpenOrders(symbol);
+}

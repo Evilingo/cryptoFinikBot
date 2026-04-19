@@ -247,10 +247,64 @@ function formatNum(value, precision) {
   return parseFloat(value).toFixed(precision);
 }
 
+async function placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, entryOrderId, info) {
+  const idPrefix = String(entryOrderId).slice(-28);
+
+  if (takeProfit) {
+    try {
+      const r = await privatePost('/v5/order/create', {
+        category: 'spot',
+        symbol,
+        side: exitSide,
+        orderType: 'Limit',
+        qty: qtyStr,
+        price: formatNum(takeProfit, info.pricePrecision),
+        timeInForce: 'GTC',
+        orderLinkId: `tp-${idPrefix}`,
+      });
+      logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit });
+    } catch (err) {
+      logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit });
+    }
+  }
+
+  if (stopLoss) {
+    const triggerDirection = exitSide === 'Sell' ? 2 : 1; // Sell SL: falls to; Buy SL: rises to
+    try {
+      const r = await privatePost('/v5/order/create', {
+        category: 'spot',
+        symbol,
+        side: exitSide,
+        orderType: 'Market',
+        qty: qtyStr,
+        triggerPrice: formatNum(stopLoss, info.pricePrecision),
+        triggerBy: 'LastPrice',
+        triggerDirection,
+        orderFilter: 'StopOrder',
+        orderLinkId: `sl-${idPrefix}`,
+      });
+      logger.info('SL stop order placed', { symbol, orderId: r.result?.orderId, sl: stopLoss });
+    } catch (err) {
+      logger.warn('SL stop order failed', { error: err.message, symbol, stopLoss });
+    }
+  }
+}
+
+export async function cancelAllOpenOrders(symbol) {
+  const results = await Promise.allSettled([
+    privatePost('/v5/order/cancel-all', { category: 'spot', symbol }),
+    privatePost('/v5/order/cancel-all', { category: 'spot', symbol, orderFilter: 'StopOrder' }),
+  ]);
+  const errs = results.filter(r => r.status === 'rejected').map(r => r.reason?.message);
+  if (errs.length) logger.warn('cancelAllOpenOrders partial failure', { symbol, errs });
+  else logger.info('Cancelled all open orders', { symbol });
+}
+
 export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit }) {
   const info = await getSymbolInfo(symbol);
   const qtyStr = formatNum(quantity, info.qtyPrecision);
   const bybitSide = side === 'BUY' ? 'Buy' : 'Sell';
+  const exitSide = bybitSide === 'Buy' ? 'Sell' : 'Buy';
 
   const body = {
     category: 'spot',
@@ -265,18 +319,16 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
   if (takeProfit) body.takeProfit = formatNum(takeProfit, info.pricePrecision);
 
   let orderData;
+  let usedSeparateOrders = false;
   try {
     orderData = await privatePost('/v5/order/create', body);
   } catch (err) {
-    // TP/SL may fail on non-UTA accounts — retry without them
-    if (stopLoss || takeProfit) {
-      logger.warn('Bybit order with TP/SL failed, retrying without', { error: err.message, symbol });
-      const bodyNoTpSl = { category: 'spot', symbol, side: bybitSide, orderType: 'Market', qty: qtyStr, marketUnit: 'baseCoin' };
-      orderData = await privatePost('/v5/order/create', bodyNoTpSl);
-      logger.warn('Order placed without TP/SL — manage exit manually', { symbol });
-    } else {
-      throw err;
-    }
+    if (!(stopLoss || takeProfit)) throw err;
+    // Inline TP/SL failed (classic non-UTA account) — place market entry first, then separate orders
+    logger.warn('Inline TP/SL failed (classic account?), placing market entry + separate TP/SL', { error: err.message, symbol });
+    const bodyNoTpSl = { category: 'spot', symbol, side: bybitSide, orderType: 'Market', qty: qtyStr, marketUnit: 'baseCoin' };
+    orderData = await privatePost('/v5/order/create', bodyNoTpSl);
+    usedSeparateOrders = true;
   }
 
   const orderId = orderData.result?.orderId;
@@ -293,10 +345,16 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
     logger.warn('Failed to fetch Bybit order avgPrice', { error: err.message, orderId });
   }
 
+  if (usedSeparateOrders) {
+    placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, orderId, info).catch((err) => {
+      logger.warn('Separate TP/SL placement failed', { error: err.message, symbol });
+    });
+  }
+
   return {
     orderId: String(orderId),
     price: avgPrice,
-    type: (stopLoss || takeProfit) ? 'MARKET+TPSL' : 'MARKET',
+    type: usedSeparateOrders ? 'MARKET+SEPARATE_TPSL' : (stopLoss || takeProfit) ? 'MARKET+TPSL' : 'MARKET',
   };
 }
 

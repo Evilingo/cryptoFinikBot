@@ -12,6 +12,7 @@ import { decrypt } from '../../config/crypto.js';
 import { sendTelegramNotification } from '../notifications/notifier.js';
 import { broadcast } from '../../ws/hub.js';
 import { env } from '../../config/env.js';
+import { cancelAllOpenOrders } from './rest.js';
 
 const BYBIT_PRIVATE_WS = env.bybitTestnet
   ? 'wss://stream-testnet.bybit.com/v5/private'
@@ -45,27 +46,29 @@ async function handleOrderFill(order) {
   if (orderStatus !== 'Filled') return;
 
   const filledPrice = parseFloat(avgPrice);
-  const isExitOrder = ['TakeProfit', 'StopLoss'].includes(stopOrderType);
+
+  // Find open trade for this symbol to determine if this is entry or exit
+  const openTrade = await prisma.trade.findFirst({ where: { symbol, status: 'OPEN' } });
+
+  // Exit = opposite side of the open trade (Sell fills a BUY position, Buy fills a SELL position)
+  // Also handles inline UTA TP/SL (stopOrderType TakeProfit/StopLoss)
+  const isInlineTpSl = ['TakeProfit', 'StopLoss'].includes(stopOrderType);
+  const isOpposingSide = openTrade && (
+    (side === 'Sell' && openTrade.side === 'BUY') ||
+    (side === 'Buy' && openTrade.side === 'SELL')
+  );
+  const isExitOrder = isInlineTpSl || isOpposingSide;
 
   if (!isExitOrder) {
     // Entry order filled — update Trade record with confirmed fill price
-    // Match by binanceOrderId (stores Bybit orderId) or by symbol+status+side
     const trade = await prisma.trade.findFirst({
       where: {
-        OR: [
-          { binanceOrderId: orderId },
-          { binanceOrderId: orderLinkId },
-        ],
+        OR: [{ binanceOrderId: orderId }, { binanceOrderId: orderLinkId }],
         status: 'OPEN',
       },
     });
-
     if (trade && filledPrice > 0 && trade.price === 0) {
-      // Price was 0 due to race condition — update with confirmed fill price
-      await prisma.trade.update({
-        where: { id: trade.id },
-        data: { price: filledPrice },
-      });
+      await prisma.trade.update({ where: { id: trade.id }, data: { price: filledPrice } });
       logger.info('Bybit entry fill confirmed, updated trade price', { symbol, orderId, filledPrice });
     } else if (trade) {
       logger.info('Bybit entry fill confirmed', { symbol, orderId, filledPrice, existingPrice: trade.price });
@@ -73,8 +76,10 @@ async function handleOrderFill(order) {
     return;
   }
 
-  // TP/SL exit order filled — close the trade
-  logger.info('Bybit order fill: TP/SL exit', { symbol, stopOrderType, exitPrice: filledPrice });
+  // Exit order filled — cancel the remaining paired TP or SL order
+  cancelAllOpenOrders(symbol).catch(() => {});
+
+  logger.info('Bybit order fill: exit', { symbol, stopOrderType, side, exitPrice: filledPrice });
 
   const exitPrice = filledPrice;
 
