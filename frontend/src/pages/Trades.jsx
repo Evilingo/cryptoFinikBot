@@ -16,6 +16,7 @@ function SideBadge({ side }) {
 export default function Trades() {
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(null);
 
   useEffect(() => {
     api.get('/trade')
@@ -23,6 +24,19 @@ export default function Trades() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this trade record from DB? This does NOT cancel any open orders on the exchange.')) return;
+    setDeleting(id);
+    try {
+      await api.delete(`/trade/${id}`);
+      setTrades(prev => prev.filter(t => t.id !== id));
+    } catch {
+      alert('Failed to delete trade');
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   const open = trades.filter(t => t.status === 'OPEN');
   const closed = trades.filter(t => t.status === 'CLOSED');
@@ -76,6 +90,7 @@ export default function Trades() {
                 <th>Status</th>
                 <th className="num">PnL</th>
                 <th>Order ID</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -108,6 +123,16 @@ export default function Trades() {
                   </td>
                   <td className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>
                     {t.binanceOrderId || '—'}
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => handleDelete(t.id)}
+                      disabled={deleting === t.id}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-4)', padding: '2px 4px', opacity: deleting === t.id ? 0.4 : 1 }}
+                      title="Delete from DB"
+                    >
+                      <Icon name="close" size={14} />
+                    </button>
                   </td>
                 </tr>
               ))}
