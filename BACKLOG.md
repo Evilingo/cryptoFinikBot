@@ -498,3 +498,43 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 **Приоритет:** HIGH
 **Проблема:** При реконнекте берётся `getAccessToken()` из модуля. Если WS закрылся из-за истёкшего токена — клиент реконнектится с тем же expired токеном. Нет явного refresh перед WS-реконнектом.
 **Исправление:** Перед реконнектом вызвать `refreshAccessToken()` или проверить expiry токена.
+
+
+---
+
+### BUG-20 — USDT иконка в Portfolio Holdings — пустой кружок неправильного цвета
+**Файл:** `frontend/src/components/primitives.jsx:1-6,69-81`
+**Приоритет:** LOW
+**Проблема:** `CoinGlyph` делает `symbol.replace(/USDC$|USDT$/, '')`. Для ассета `USDT` → `base = ''`. `COIN_COLORS[''] = undefined` → дефолтный оранжевый `#d4a574`. Буква: `''[0] = undefined` → ничего не показывается внутри кружка.
+**Исправление:**
+1. Добавить `USDT: '#26a17b'` в `COIN_COLORS`
+2. В `CoinGlyph`: если `base === ''` — использовать оригинальный `symbol` как `base`
+
+---
+
+### BUG-21 — Portfolio Holdings: Free/Locked колонки всегда 0, total считается неправильно
+**Файлы:** `backend/src/services/bybit/rest.js:111-129`, `backend/src/routes/portfolio.js:16-26`, `frontend/src/pages/Portfolio.jsx`
+**Приоритет:** MEDIUM
+**Проблема:** В Bybit UTA `walletBalance` — это total баланс. `getAccountBalance()` маппит `free: c.walletBalance` (неправильно — это total, не free). В `portfolio.js` `total = free + locked` — неправильно, должно быть `walletBalance` напрямую. В UTA free/locked всегда 0 (средства в unified pool). В UI колонки Free и Locked не несут смысла — запутывают.
+**Исправление:**
+1. `getAccountBalance()`: добавить поле `total: c.walletBalance`, исправить `free: c.availableToWithdraw || '0'`
+2. `portfolio.js` `/balance`: возвращать `{ asset, total }` вместо `{ asset, free, locked, total }`
+3. `Portfolio.jsx` Holdings таблица: убрать Free/Locked колонки, оставить только Asset + Total
+
+---
+
+### BUG-22 — Portfolio: нет аудита открытых позиций vs биржевые ордера (Sync)
+**Файлы:** `frontend/src/pages/Portfolio.jsx`, новый endpoint
+**Приоритет:** HIGH
+**Проблема:** Система считает сделку "под контролем" пока она OPEN в DB — но на бирже может не быть ни SL ни TP ордеров. У пользователя 4 OPEN Bot Trades, на бирже 1 ордер. Разрыв не виден и не алертится — ложное чувство безопасности. Незащищённый капитал остаётся открытым бесконечно.
+**Исправление:**
+1. Добавить endpoint `GET /api/portfolio/sync-check` — для каждого OPEN Trade в DB проверить есть ли на бирже хотя бы один ордер по этому символу (SL или TP). Вернуть список "проблемных" позиций.
+2. Добавить кнопку "Sync" в Bot Trades секцию — при нажатии вызывает endpoint и показывает алерт с перечнем позиций без защиты (не закрывает автоматически — только информирует).
+
+---
+
+### BUG-23 — TP ордер не размещается (или отменяется) тихо — нет Telegram алерта
+**Файл:** `backend/src/services/exchange/index.js` (или `bybit/rest.js` — placeOrder)
+**Приоритет:** HIGH
+**Проблема:** При размещении OCO (SL + TP), если TP ордер не разместился (Bybit отклонил, или исключение после SL), — только `warn` в логах. Пользователь не знает. Позиция остаётся без потолка прибыли и автоматического закрытия по TP — её закроет только SL (убыток) или таймаут (по текущей цене). Аналогично TRADE-05 для SL — та же логика применима к TP.
+**Исправление:** После неудачного размещения TP ордера — `sendTelegramNotification` с явным предупреждением о позиции без TP. По аналогии с TRADE-05 (SL failure уже алертится).
