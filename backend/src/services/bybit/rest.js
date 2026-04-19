@@ -249,7 +249,8 @@ function countDecimals(str) {
 }
 
 function formatNum(value, precision) {
-  return parseFloat(value).toFixed(precision);
+  const factor = Math.pow(10, precision);
+  return (Math.floor(parseFloat(value) * factor) / factor).toFixed(precision);
 }
 
 // Returns true if SL placement failed (position is unprotected — caller must handle).
