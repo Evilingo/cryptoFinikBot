@@ -2,8 +2,10 @@ import { Router } from 'express';
 
 import { getSignalStats, getEnhancedStats, runBacktest, runOptimize } from '../services/signals/tracker.js';
 import { prisma } from '../db/prisma.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
+router.use(authMiddleware);
 
 router.get('/', async (req, res) => {
   const pairId = req.query.pairId ? parseInt(req.query.pairId) : null;

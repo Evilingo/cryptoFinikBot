@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { getAccountBalance } from '../services/exchange/index.js';
 import { getAccountBalance as getBybitBalance, queryApiPermissions } from '../services/bybit/rest.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
+router.use(authMiddleware);
 
 router.get('/', async (req, res) => {
   try {

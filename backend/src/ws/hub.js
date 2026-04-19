@@ -1,11 +1,27 @@
 import { WebSocketServer } from 'ws';
+import jwt from 'jsonwebtoken';
 import { logger } from '../config/logger.js';
+import { env } from '../config/env.js';
 
 let wss = null;
 const clients = new Set();
 
 export function initWebSocketHub(server) {
-  wss = new WebSocketServer({ server, path: '/ws' });
+  wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    verifyClient: ({ req }, cb) => {
+      try {
+        const url = new URL(req.url, 'http://localhost');
+        const token = url.searchParams.get('token');
+        if (!token) { cb(false, 401, 'Unauthorized'); return; }
+        jwt.verify(token, env.jwtSecret);
+        cb(true);
+      } catch {
+        cb(false, 401, 'Unauthorized');
+      }
+    },
+  });
 
   wss.on('connection', (ws) => {
     clients.add(ws);
