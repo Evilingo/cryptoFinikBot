@@ -218,6 +218,7 @@ ${atr15mLine}`;
   });
 
   const text = await callClaude(systemPrompt, userMessage);
+  logger.info('OFI Claude raw response', { symbol: pair.monitorSymbol, text });
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   const jsonText = jsonMatch ? jsonMatch[0] : text.trim();
 
@@ -228,6 +229,7 @@ ${atr15mLine}`;
     return { direction: 'WAIT', confidence: 0, analysis: text, suggestedSl: null, suggestedTp: null };
   }
 
+  logger.info('OFI Claude parsed', { symbol: pair.monitorSymbol, direction: parsed.direction, confidence: parsed.confidence, hasAnalysis: !!parsed.analysis, analysisKeys: Object.keys(parsed) });
   return validateSlTp(parsed, currentPrice, pair.monitorSymbol, atr15m);
 }
 
