@@ -110,15 +110,16 @@ export default function SignalModal({ signal, onClose }) {
               </div>
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10}}>
                 {obd.map((v, i) => {
-                  const pct = Math.max(-40, Math.min(40, v));
+                  const val = v ?? 0;
+                  const pct = Math.max(-40, Math.min(40, val));
                   return (
                     <div key={i} style={{background: 'var(--bg-2)', borderRadius: 'var(--radius)', padding: '10px 12px'}}>
                       <div style={{fontSize: 10, color: 'var(--text-3)', fontWeight: 600, letterSpacing: '0.06em'}}>OBD-{i + 1}</div>
-                      <div className="mono" style={{fontSize: 18, fontWeight: 700, color: v >= 0 ? 'var(--long)' : 'var(--short)', marginTop: 4}}>
-                        {v > 0 ? '+' : ''}{v.toFixed(1)}
+                      <div className="mono" style={{fontSize: 18, fontWeight: 700, color: val >= 0 ? 'var(--long)' : 'var(--short)', marginTop: 4}}>
+                        {v != null ? (val > 0 ? '+' : '') + val.toFixed(1) : '—'}
                       </div>
                       <div style={{height: 3, background: 'var(--bg-3)', borderRadius: 2, marginTop: 6, overflow: 'hidden'}}>
-                        <div style={{height: '100%', width: `${Math.abs(pct) * 2.5}%`, background: v >= 0 ? 'var(--long)' : 'var(--short)'}}/>
+                        <div style={{height: '100%', width: `${Math.abs(pct) * 2.5}%`, background: val >= 0 ? 'var(--long)' : 'var(--short)'}}/>
                       </div>
                     </div>
                   );

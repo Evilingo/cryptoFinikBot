@@ -4,6 +4,7 @@ import { analyzeSignal } from '../claude/orchestrator.js';
 import { broadcast } from '../../ws/hub.js';
 import { getKlines, placeOrder, getAccountBalance } from '../exchange/index.js';
 import { runClaudePipeline } from '../signals/claudePipeline.js';
+import { sendTelegramNotification } from '../notifications/notifier.js';
 
 // In-memory store: symbol -> { current, previous, history[] }
 const obdState = new Map();
