@@ -1,9 +1,9 @@
 import { prisma } from '../../db/prisma.js';
 import { logger } from '../../config/logger.js';
 import { analyzeSignal } from '../claude/orchestrator.js';
-import { sendTelegramNotification, formatSignalMessage } from '../notifications/notifier.js';
 import { broadcast } from '../../ws/hub.js';
-import { getKlines, getMidPrice, placeOrder, getAccountBalance } from '../exchange/index.js';
+import { getKlines, placeOrder, getAccountBalance } from '../exchange/index.js';
+import { runClaudePipeline } from '../signals/claudePipeline.js';
 
 // In-memory store: symbol -> { current, previous, history[] }
 const obdState = new Map();
@@ -120,95 +120,24 @@ export async function processObdUpdate(pair, obd, midPrice) {
 }
 
 async function analyzeWithClaude(signalId, pair, obd, midPrice, signalDirection) {
-  try {
-    const candles = await getKlines(pair.monitorSymbol, pair.timeframe, 20);
-
-    // Skip Claude if env var set (test mode)
-    const skipClaude = process.env.SKIP_CLAUDE_ANALYSIS === 'true';
-    const analysis = skipClaude
-      ? { direction: signalDirection, confidence: 80, analysis: 'Claude skipped (test mode)', suggestedSl: null, suggestedTp: null }
-      : await analyzeSignal(pair, obd, candles, midPrice);
-
-    // Fetch actual entry price after Claude response (price may have moved)
-    let entryPrice = midPrice;
-    if (analysis.direction !== 'WAIT') {
-      try {
-        entryPrice = await getMidPrice(pair.tradeSymbol);
-        logger.info(`Entry price updated after Claude`, {
-          symbol: pair.monitorSymbol,
-          signalPrice: midPrice,
-          entryPrice,
-          drift: ((entryPrice - midPrice) / midPrice * 100).toFixed(3) + '%',
-        });
-      } catch (err) {
-        logger.warn(`Failed to fetch entry price, using signal price`, { error: err.message });
-      }
-    }
-
-    // Update signal in DB with Claude analysis and actual entry price
-    await prisma.signal.update({
-      where: { id: signalId },
-      data: {
-        direction: analysis.direction || 'WAIT',
-        confidence: analysis.confidence != null ? Math.round(analysis.confidence) : null,
-        claudeAnalysis: analysis.analysis || '',
-        suggestedSl: analysis.suggestedSl,
-        suggestedTp: analysis.suggestedTp,
-        price: entryPrice,
-        rsi: analysis.rsi ?? null,
-        trend5m: analysis.trend5m ?? null,
-        trend15m: analysis.trend15m ?? null,
-        atr: analysis.atr ?? null,
-        atrPct: analysis.atrPct ?? null,
-        tpPct: analysis.suggestedTp ? Math.round(Math.abs(analysis.suggestedTp - entryPrice) / entryPrice * 10000) / 100 : null,
-        slPct: analysis.suggestedSl ? Math.round(Math.abs(entryPrice - analysis.suggestedSl) / entryPrice * 10000) / 100 : null,
-      },
-    });
-
-    logger.info(`Signal #${signalId} updated with Claude analysis`, {
-      direction: analysis.direction,
-      confidence: analysis.confidence,
-      entryPrice,
-    });
-
-    // Broadcast updated signal
-    const updated = {
-      id: signalId,
-      monitorSymbol: pair.monitorSymbol,
-      tradeSymbol: pair.tradeSymbol,
-      direction: analysis.direction,
-      confidence: analysis.confidence,
-      claudeAnalysis: analysis.analysis || '',
-      suggestedSl: analysis.suggestedSl,
-      suggestedTp: analysis.suggestedTp,
-      price: entryPrice,
-      obd1: obd.obd1,
-      obd2: obd.obd2,
-      obd3: obd.obd3,
-      obd4: obd.obd4,
-    };
-
-    broadcast({ type: 'SIGNAL_UPDATE', signal: updated });
-
-    // Telegram notification (only after Claude confirms, respects minConfidence)
-    if (analysis.direction !== 'WAIT') {
-      sendTelegramNotification(formatSignalMessage(updated), analysis.confidence).catch((err) => {
-        logger.error('Telegram notification failed', { error: err.message });
-      });
-
-      // Auto-trade if enabled
-      executeAutoTrade(signalId, pair, analysis, entryPrice).catch((err) => {
-        logger.error(`Auto-trade failed for signal #${signalId}`, { error: err.message });
-      });
-    }
-  } catch (err) {
-    // Save error to DB so we know Claude failed
-    await prisma.signal.update({
-      where: { id: signalId },
-      data: { claudeAnalysis: `Claude error: ${err.message}` },
-    }).catch(() => {});
-    throw err;
-  }
+  await runClaudePipeline(signalId, pair, midPrice, {
+    getAnalysis: async (skipClaude) => {
+      if (skipClaude) return { direction: signalDirection, confidence: 80, analysis: 'Claude skipped (test mode)', suggestedSl: null, suggestedTp: null };
+      const candles = await getKlines(pair.monitorSymbol, pair.timeframe, 20);
+      return analyzeSignal(pair, obd, candles, midPrice);
+    },
+    extraDbFields: (analysis, entryPrice) => ({
+      rsi: analysis.rsi ?? null,
+      trend5m: analysis.trend5m ?? null,
+      trend15m: analysis.trend15m ?? null,
+      atr: analysis.atr ?? null,
+      atrPct: analysis.atrPct ?? null,
+      tpPct: analysis.suggestedTp ? Math.round(Math.abs(analysis.suggestedTp - entryPrice) / entryPrice * 10000) / 100 : null,
+      slPct: analysis.suggestedSl ? Math.round(Math.abs(entryPrice - analysis.suggestedSl) / entryPrice * 10000) / 100 : null,
+    }),
+    broadcastExtra: { obd1: obd.obd1, obd2: obd.obd2, obd3: obd.obd3, obd4: obd.obd4 },
+    executeAutoTrade,
+  });
 }
 
 export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
@@ -334,13 +263,28 @@ function detectTrendStructure(prices) {
   return slope > 0 ? 'UP' : 'DOWN';
 }
 
+// Shared detection core — used by both detectSignal (live) and detectSignalFromHistory (backtest).
+// trend: 'UP' | 'DOWN' | null (null = no trend gate, allow any direction)
+function runDetection(recent, beforeWindow, current, thresholdPct, trend) {
+  const recentMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
+  const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
+  const dippedCount = OBD_KEYS.filter((k) => beforeMaxes[k] > 0 && (beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] >= thresholdPct / 100).length;
+  const recoveringCount = OBD_KEYS.filter((k) => current[k] > recentMins[k] + 2).length;
+  if (dippedCount >= OBD_MIN_MATCH && recoveringCount >= OBD_MIN_MATCH && (trend === null || trend === 'UP')) return 'LONG';
+
+  const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
+  const beforeMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
+  const spikedCount = OBD_KEYS.filter((k) => recentMaxes[k] > 0 && (recentMaxes[k] - beforeMins[k]) / recentMaxes[k] >= thresholdPct / 100).length;
+  const fallingCount = OBD_KEYS.filter((k) => current[k] < recentMaxes[k] - 2).length;
+  if (spikedCount >= OBD_MIN_MATCH && fallingCount >= OBD_MIN_MATCH && (trend === null || trend === 'DOWN')) return 'SHORT';
+
+  return null;
+}
+
 /**
  * Pure synchronous version — used by backtester (no DB/async).
- * thresholdPct: relative dip/spike size in % (default 10%).
- *   OBD1/OBD2 require ≥ thresholdPct%, OBD3/OBD4 require ≥ 2×thresholdPct%.
  * trendContext: optional snapshot array (with midPrice) for trend structure gate.
- *   LONG only allowed when trend = 'UP', SHORT only when trend = 'DOWN'.
- *   Pass null to disable the filter (legacy behaviour).
+ *   Pass null to disable the filter.
  */
 export function detectSignalFromHistory(history, thresholdPct = 10, trendContext = null) {
   if (history.length < 24) return null;
@@ -349,37 +293,17 @@ export function detectSignalFromHistory(history, thresholdPct = 10, trendContext
   const beforeWindow = history.slice(-24, -12);
   if (beforeWindow.length < 3) return null;
 
-  // Trend structure gate
-  let trend = 'NEUTRAL';
+  let trend = null;
   if (trendContext && trendContext.length >= 10) {
     trend = detectTrendStructure(trendContext.map((s) => s.midPrice));
     if (trend === 'NEUTRAL') return null;
   }
 
-  const recentMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
-  const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
-  const dippedCount = OBD_KEYS.filter((k) => {
-    if (beforeMaxes[k] <= 0) return false;
-    return (beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] >= thresholdPct / 100;
-  }).length;
-  const recoveringCount = OBD_KEYS.filter((k) => current[k] > recentMins[k] + 2).length;
-  if (dippedCount >= OBD_MIN_MATCH && recoveringCount >= OBD_MIN_MATCH && (trendContext === null || trend === 'UP')) return 'LONG';
-
-  const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
-  const beforeMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
-  const spikedCount = OBD_KEYS.filter((k) => {
-    if (recentMaxes[k] <= 0) return false;
-    return (recentMaxes[k] - beforeMins[k]) / recentMaxes[k] >= thresholdPct / 100;
-  }).length;
-  const fallingCount = OBD_KEYS.filter((k) => current[k] < recentMaxes[k] - 2).length;
-  if (spikedCount >= OBD_MIN_MATCH && fallingCount >= OBD_MIN_MATCH && (trendContext === null || trend === 'DOWN')) return 'SHORT';
-
-  return null;
+  return runDetection(recent, beforeWindow, current, thresholdPct, trend);
 }
 
 async function detectSignal(state) {
   const thresholdPct = await getDipThreshold();
-
   const { current, history } = state;
   if (history.length < 3) return null;
 
@@ -392,25 +316,5 @@ async function detectSignal(state) {
     : 'NEUTRAL';
   if (trend === 'NEUTRAL') return null;
 
-  // --- LONG ---
-  const recentMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...recent.map((h) => h[k]))]));
-  const beforeMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...beforeWindow.map((h) => h[k]))]));
-  const dippedCount = OBD_KEYS.filter((k) => {
-    if (beforeMaxes[k] <= 0) return false;
-    return (beforeMaxes[k] - recentMins[k]) / beforeMaxes[k] >= thresholdPct / 100;
-  }).length;
-  const recoveringCount = OBD_KEYS.filter((k) => current[k] > recentMins[k] + 2).length;
-  if (dippedCount >= OBD_MIN_MATCH && recoveringCount >= OBD_MIN_MATCH && trend === 'UP') return 'LONG';
-
-  // --- SHORT ---
-  const recentMaxes = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.max(...recent.map((h) => h[k]))]));
-  const beforeMins  = Object.fromEntries(OBD_KEYS.map((k) => [k, Math.min(...beforeWindow.map((h) => h[k]))]));
-  const spikedCount = OBD_KEYS.filter((k) => {
-    if (recentMaxes[k] <= 0) return false;
-    return (recentMaxes[k] - beforeMins[k]) / recentMaxes[k] >= thresholdPct / 100;
-  }).length;
-  const fallingCount = OBD_KEYS.filter((k) => current[k] < recentMaxes[k] - 2).length;
-  if (spikedCount >= OBD_MIN_MATCH && fallingCount >= OBD_MIN_MATCH && trend === 'DOWN') return 'SHORT';
-
-  return null;
+  return runDetection(recent, beforeWindow, current, thresholdPct, trend);
 }

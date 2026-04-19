@@ -2,7 +2,9 @@ import { prisma } from '../../db/prisma.js';
 import { logger } from '../../config/logger.js';
 import { broadcast } from '../../ws/hub.js';
 
-const TRACKING_TIMEOUT = 60 * 60 * 1000; // 1 час — макс. время отслеживания сигнала
+const TRACKING_TIMEOUT = 60 * 60 * 1000;
+
+const calcPnl = (entry, exit, isLong) => ((isLong ? exit - entry : entry - exit) / entry) * 100;
 
 /**
  * Вызывается каждые 5 сек из orderbook polling.
@@ -36,37 +38,18 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
     let outcomePnl = null;
 
     if (isLong) {
-      // LONG: TP выше цены входа, SL ниже
-      if (currentPrice >= signal.suggestedTp) {
-        outcome = 'WIN';
-        outcomePrice = currentPrice;
-        outcomePnl = ((currentPrice - signal.price) / signal.price) * 100;
-      } else if (currentPrice <= signal.suggestedSl) {
-        outcome = 'LOSS';
-        outcomePrice = currentPrice;
-        outcomePnl = ((currentPrice - signal.price) / signal.price) * 100;
-      }
+      if (currentPrice >= signal.suggestedTp) { outcome = 'WIN'; outcomePrice = currentPrice; }
+      else if (currentPrice <= signal.suggestedSl) { outcome = 'LOSS'; outcomePrice = currentPrice; }
     } else if (signal.direction === 'SHORT') {
-      // SHORT: TP ниже цены входа, SL выше
-      if (currentPrice <= signal.suggestedTp) {
-        outcome = 'WIN';
-        outcomePrice = currentPrice;
-        outcomePnl = ((signal.price - currentPrice) / signal.price) * 100;
-      } else if (currentPrice >= signal.suggestedSl) {
-        outcome = 'LOSS';
-        outcomePrice = currentPrice;
-        outcomePnl = ((signal.price - currentPrice) / signal.price) * 100;
-      }
+      if (currentPrice <= signal.suggestedTp) { outcome = 'WIN'; outcomePrice = currentPrice; }
+      else if (currentPrice >= signal.suggestedSl) { outcome = 'LOSS'; outcomePrice = currentPrice; }
     }
 
-    // Таймаут — закрываем по текущей цене
+    if (outcomePrice != null) outcomePnl = calcPnl(signal.price, outcomePrice, isLong);
+
     if (!outcome && age > TRACKING_TIMEOUT) {
       outcomePrice = currentPrice;
-      if (isLong) {
-        outcomePnl = ((currentPrice - signal.price) / signal.price) * 100;
-      } else {
-        outcomePnl = ((signal.price - currentPrice) / signal.price) * 100;
-      }
+      outcomePnl = calcPnl(signal.price, currentPrice, isLong);
       outcome = outcomePnl > 0.1 ? 'WIN' : outcomePnl < -0.1 ? 'LOSS' : 'BREAKEVEN';
     }
 

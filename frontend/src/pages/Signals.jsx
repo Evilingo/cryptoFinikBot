@@ -3,46 +3,31 @@ import api from '../services/api';
 import { CoinGlyph, Icon, DirectionBadge, ConfidenceBadge, OutcomeBadge, formatPrice, formatTime } from '../components/primitives';
 
 export default function Signals({ onOpenSignal }) {
-  const [rawSignals, setRawSignals] = useState([]);
+  const [signals, setSignals] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState(null);
   const [filterDir, setFilterDir] = useState('ALL');
   const [filterOutcome, setFilterOutcome] = useState('ALL');
+  const [filterStrategy, setFilterStrategy] = useState('ALL');
   const limit = 50;
 
   useEffect(() => {
     api.get(`/signals?limit=${limit}&offset=${page * limit}`)
       .then(({ data }) => {
-        setRawSignals(data.signals || []);
+        setSignals(data.signals || []);
         setTotal(data.total || 0);
       })
       .catch(() => {});
   }, [page]);
 
-  // Normalize signal fields
-  const signals = useMemo(() => rawSignals.map(s => ({
-    ...s,
-    pair: s.pair?.monitorSymbol || s.monitorSymbol || (typeof s.pair === 'string' ? s.pair : '') || '',
-    analysis: s.claudeAnalysis || s.analysis || '',
-    sl: s.suggestedSl || s.stopLoss || s.sl,
-    tp: s.suggestedTp || s.takeProfit || s.tp,
-    strategy: s.strategy || 'OBD',
-    ofiRatio: s.ofiRatio ?? null,
-    obd: [s.obd1, s.obd2, s.obd3, s.obd4],
-    tpPct: s.tpPct ?? null,
-    slPct: s.slPct ?? null,
-    pnl: s.outcomePnl ?? s.pnl ?? null,
-    price: s.price ?? 0,
-    createdAt: s.createdAt ? new Date(s.createdAt).getTime() : Date.now(),
-  })), [rawSignals]);
-
   const filtered = useMemo(() => signals.filter(s => {
     if (filterDir !== 'ALL' && s.direction !== filterDir) return false;
     if (filterOutcome === 'PENDING' && s.outcome) return false;
     if (filterOutcome !== 'ALL' && filterOutcome !== 'PENDING' && s.outcome !== filterOutcome) return false;
+    if (filterStrategy !== 'ALL' && s.strategy !== filterStrategy) return false;
     return true;
-  }), [signals, filterDir, filterOutcome]);
+  }), [signals, filterDir, filterOutcome, filterStrategy]);
 
   const stats = useMemo(() => {
     const resolved = signals.filter(s => s.outcome && s.outcome !== 'BREAKEVEN');
@@ -83,6 +68,12 @@ export default function Signals({ onOpenSignal }) {
         <div className="seg">
           {['ALL', 'LONG', 'SHORT', 'WAIT'].map(d => (
             <button key={d} className={filterDir === d ? 'active' : ''} onClick={() => setFilterDir(d)}>{d}</button>
+          ))}
+        </div>
+        <div style={{width: 1, height: 24, background: 'var(--line)'}}/>
+        <div className="seg">
+          {['ALL', 'OBD', 'OFI'].map(st => (
+            <button key={st} className={filterStrategy === st ? 'active' : ''} onClick={() => setFilterStrategy(st)}>{st}</button>
           ))}
         </div>
         <div style={{width: 1, height: 24, background: 'var(--line)'}}/>

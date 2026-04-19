@@ -4,6 +4,13 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useAlertSound } from '../hooks/useAlertSound';
 import { CoinGlyph, ConnIndicator, formatPrice } from '../components/primitives';
 import { Sparkchart, genCandles } from '../components/charts';
+import { calcSlPrice, calcTpPrice } from '../utils/trade';
+
+const normalizeCandle = (k) => Array.isArray(k)
+  ? { t: parseInt(k[0]), o: parseFloat(k[1]), h: parseFloat(k[2]), l: parseFloat(k[3]), c: parseFloat(k[4]) }
+  : { t: k.t, o: parseFloat(k.o), h: parseFloat(k.h), l: parseFloat(k.l), c: parseFloat(k.c) };
+
+const calcDelta = (first, last) => first ? ((last - first) / first) * 100 : null;
 
 const PAIRS_CONFIG = [
   { monitorSymbol: 'BTCUSDC', tradeSymbol: 'BTCUSDT', base: 'BTC', basePrice: 65000 },
@@ -75,22 +82,12 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
       api.get(`/klines?symbol=${p.monitorSymbol}&interval=1m&limit=60`)
         .then(({ data }) => {
           if (Array.isArray(data) && data.length) {
-            // Handle both Binance array format [time, o, h, l, c, ...]
-            // and Bybit object format { t, o, h, l, c }
-            const candles = data.map(k => Array.isArray(k)
-              ? { t: parseInt(k[0]), o: parseFloat(k[1]), h: parseFloat(k[2]), l: parseFloat(k[3]), c: parseFloat(k[4]) }
-              : { t: k.t, o: k.o, h: k.h, l: k.l, c: k.c }
-            ).filter(k => !isNaN(k.o));
+            const candles = data.map(normalizeCandle).filter(k => !isNaN(k.o));
             candlesRef.current[p.monitorSymbol] = candles.map(({ o, h, l, c }) => ({ o, h, l, c }));
             klineTimeRef.current[p.monitorSymbol] = candles[candles.length - 1]?.t ?? 0;
-            // Compute 1h delta
-            const firstOpen = candles[0]?.o;
-            const lastClose = candles[candles.length - 1]?.c;
-            if (firstOpen && lastClose) {
-              deltaRef.current[p.monitorSymbol] = ((lastClose - firstOpen) / firstOpen) * 100;
-              setDeltaData({ ...deltaRef.current });
-            }
-            setChartTick(t => t + 1); // trigger re-render with real data
+            const delta = calcDelta(candles[0]?.o, candles[candles.length - 1]?.c);
+            if (delta !== null) { deltaRef.current[p.monitorSymbol] = delta; setDeltaData({ ...deltaRef.current }); }
+            setChartTick(t => t + 1);
           }
         })
         .catch(() => {});
@@ -124,33 +121,18 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
       const k = msg.kline;
       if (k && candlesRef.current[sym]) {
         const arr = candlesRef.current[sym];
-        const newCandle = {
-          o: parseFloat(k.o),
-          h: parseFloat(k.h),
-          l: parseFloat(k.l),
-          c: parseFloat(k.c),
-        };
+        const newCandle = normalizeCandle(k);
         if (k.x && k.t !== klineTimeRef.current[sym]) {
-          // Candle closed — push new, drop oldest
           klineTimeRef.current[sym] = k.t;
           arr.push(newCandle);
           if (arr.length > 60) arr.shift();
-          setChartTick(t => t + 1); // re-render on minute close
+          setChartTick(t => t + 1);
         } else {
-          // Update current candle in-place
           const last = arr[arr.length - 1];
-          if (last) {
-            last.c = newCandle.c;
-            last.h = Math.max(last.h, newCandle.h);
-            last.l = Math.min(last.l, newCandle.l);
-          }
+          if (last) { last.c = newCandle.c; last.h = Math.max(last.h, newCandle.h); last.l = Math.min(last.l, newCandle.l); }
         }
-        // Update 1h delta
-        const firstOpen = arr[0]?.o;
-        if (firstOpen) {
-          deltaRef.current[sym] = ((newCandle.c - firstOpen) / firstOpen) * 100;
-          setDeltaData({ ...deltaRef.current });
-        }
+        const delta = calcDelta(arr[0]?.o, newCandle.c);
+        if (delta !== null) { deltaRef.current[sym] = delta; setDeltaData({ ...deltaRef.current }); }
       }
     }
     if (msg.type === 'SIGNAL') {
@@ -173,8 +155,8 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
   const selObd = selPair ? obdData[selPair.monitorSymbol] : null;
   const selCfg = PAIRS_CONFIG.find(p => p.monitorSymbol === selPair?.monitorSymbol);
   const currentPrice = selObd?.midPrice ?? selCfg?.basePrice ?? 0;
-  const slPrice = currentPrice * (side === 'BUY' ? (1 - parseFloat(slPct) / 100) : (1 + parseFloat(slPct) / 100));
-  const tpPrice = currentPrice * (side === 'BUY' ? (1 + parseFloat(tpPct) / 100) : (1 - parseFloat(tpPct) / 100));
+  const slPrice = calcSlPrice(currentPrice, side, parseFloat(slPct));
+  const tpPrice = calcTpPrice(currentPrice, side, parseFloat(tpPct));
 
   const selBase = toBase(selPair?.monitorSymbol);
   const usdtBalance = parseFloat(balances.find(b => b.asset === 'USDT')?.free ?? 0);

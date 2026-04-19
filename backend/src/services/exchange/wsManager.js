@@ -21,26 +21,40 @@ export function getCurrentExchange() {
   return currentExchange;
 }
 
-export async function initExchangeWs(exchange) {
-  currentExchange = exchange;
+function startExchangeServices(exchange) {
   if (exchange === 'bybit') {
     if (env.bybitTestnet) logger.info('[Bybit] TESTNET mode active: https://api-testnet.bybit.com');
     logger.info('Starting Bybit WebSocket services');
     startBybitOrderBookWs();
     startBybitWs();
     startBybitAggTradeWs();
-    startBybitUserDataStream().catch((err) =>
-      logger.warn('Bybit User Data Stream start failed', { error: err.message })
-    );
+    startBybitUserDataStream().catch((err) => logger.warn('Bybit User Data Stream start failed', { error: err.message }));
   } else {
     logger.info('Starting Binance WebSocket services');
     startOrderBookWs();
     startBinanceWs();
     startAggTradeWs();
-    startUserDataStream().catch((err) =>
-      logger.warn('User Data Stream start failed', { error: err.message })
-    );
+    startUserDataStream().catch((err) => logger.warn('User Data Stream start failed', { error: err.message }));
   }
+}
+
+function stopExchangeServices(exchange) {
+  if (exchange === 'bybit') {
+    stopBybitOrderBookWs();
+    stopBybitWs();
+    stopBybitAggTradeWs();
+    stopBybitUserDataStream();
+  } else {
+    stopOrderBookWs();
+    stopBinanceWs();
+    stopAggTradeWs();
+    stopUserDataStream();
+  }
+}
+
+export function initExchangeWs(exchange) {
+  currentExchange = exchange;
+  startExchangeServices(exchange);
 }
 
 export async function switchExchangeWs(newExchange) {
@@ -57,45 +71,10 @@ export async function switchExchangeWs(newExchange) {
   switching = true;
   try {
     logger.info(`Switching WebSocket services: ${currentExchange} → ${newExchange}`);
-
-    // Stop current
-    if (currentExchange === 'bybit') {
-      stopBybitOrderBookWs();
-      stopBybitWs();
-      stopBybitAggTradeWs();
-      stopBybitUserDataStream();
-    } else {
-      stopOrderBookWs();
-      stopBinanceWs();
-      stopAggTradeWs();
-      stopUserDataStream();
-    }
-
-    // Brief pause so sockets close cleanly before opening new ones
+    stopExchangeServices(currentExchange);
     await new Promise((r) => setTimeout(r, 1000));
-
     currentExchange = newExchange;
-
-    // Start new
-    if (newExchange === 'bybit') {
-      if (env.bybitTestnet) logger.info('[Bybit] TESTNET mode active: https://api-testnet.bybit.com');
-      logger.info('Starting Bybit WebSocket services');
-      startBybitOrderBookWs();
-      startBybitWs();
-      startBybitAggTradeWs();
-      startBybitUserDataStream().catch((err) =>
-        logger.warn('Bybit User Data Stream start failed', { error: err.message })
-      );
-    } else {
-      logger.info('Starting Binance WebSocket services');
-      startOrderBookWs();
-      startBinanceWs();
-      startAggTradeWs();
-      startUserDataStream().catch((err) =>
-        logger.warn('User Data Stream start failed', { error: err.message })
-      );
-    }
-
+    startExchangeServices(newExchange);
     logger.info(`WebSocket services switched to ${newExchange}`);
   } finally {
     switching = false;

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import api from '../services/api';
 import { CoinGlyph, Icon, ConfidenceBadge, formatPrice } from './primitives';
 import { Sparkchart, genCandles } from './charts';
+import { calcSlPrice, calcTpPrice } from '../utils/trade';
 
 export default function SignalModal({ signal, onClose }) {
   const candles = useRef(genCandles(signal.price || 65000, 60)).current;
@@ -31,8 +32,8 @@ export default function SignalModal({ signal, onClose }) {
   const base = monSym.replace(/USDC$|USDT$/, '');
 
   const side = direction === 'SHORT' ? 'SELL' : 'BUY';
-  const slPrice = price * (side === 'BUY' ? (1 - parseFloat(slPct) / 100) : (1 + parseFloat(slPct) / 100));
-  const tpPrice = price * (side === 'BUY' ? (1 + parseFloat(tpPct) / 100) : (1 - parseFloat(tpPct) / 100));
+  const slPrice = calcSlPrice(price, side, parseFloat(slPct));
+  const tpPrice = calcTpPrice(price, side, parseFloat(tpPct));
   const rr = (parseFloat(tpPct) / parseFloat(slPct || 1)).toFixed(2);
 
   const usdtBalance = parseFloat(balances.find(b => b.asset === 'USDT')?.free ?? 0);

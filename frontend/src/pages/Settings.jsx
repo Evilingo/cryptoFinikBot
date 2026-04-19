@@ -2,6 +2,35 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Toggle, Icon } from '../components/primitives';
 
+function SettingRow({ label, description, children }) {
+  return (
+    <div className="row-setting">
+      <div className="row-setting-info">
+        <strong>{label}</strong>
+        <span>{description}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function formatBybitTestResult(data) {
+  const balances = data.balances || [];
+  const perms = data.permissions;
+  const balLine = balances.length === 0
+    ? 'No assets found'
+    : balances.map((b) => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
+  let permLine = '';
+  if (perms && !perms.error) {
+    if (perms.readOnly) permLine = ' · ⚠ Read-only key — trading disabled';
+    else if (perms.canTrade) permLine = ' · Trade ✓';
+    else permLine = ' · ⚠ No SpotTrade permission — orders will fail';
+  } else if (perms?.error) {
+    permLine = ` · Permissions check failed: ${perms.error}`;
+  }
+  return { ok: perms?.canTrade ? true : null, msg: `${balLine}${permLine}` };
+}
+
 export default function Settings() {
   const [section, setSection] = useState('trading');
   const [settings, setSettings] = useState(null);
@@ -88,26 +117,11 @@ export default function Settings() {
     try {
       await api.put('/settings/bybit-keys', { apiKey: bybitApiKey, secret: bybitSecret });
       setBybitApiKey(''); setBybitSecret('');
-      // Auto-test connection after saving
       setBybitStatus({ ok: null, msg: 'Testing connection…' });
       try {
         const { data } = await api.get('/balance/test-bybit');
-        const balances = data.balances || [];
-        const perms = data.permissions;
-
-        let permLine = '';
-        if (perms && !perms.error) {
-          if (perms.readOnly) permLine = ' · ⚠ Read-only key — trading disabled';
-          else if (perms.canTrade) permLine = ' · Trade ✓';
-          else permLine = ' · ⚠ No SpotTrade permission — orders will fail';
-        }
-
-        const balLine = balances.length === 0
-          ? 'No assets found'
-          : balances.map(b => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
-
-        const ok = perms?.canTrade ? true : null;
-        setBybitStatus({ ok, msg: `Keys saved · ${balLine}${permLine}` });
+        const result = formatBybitTestResult(data);
+        setBybitStatus({ ...result, msg: `Keys saved · ${result.msg}` });
         window.dispatchEvent(new CustomEvent('finik:balance-refresh'));
       } catch (err) {
         const reason = err.response?.data?.error || err.message || 'unknown error';
@@ -183,34 +197,7 @@ export default function Settings() {
     setBybitStatus({ ok: null, msg: 'Testing connection…' });
     try {
       const { data } = await api.get('/balance/test-bybit');
-
-      const perms = data.permissions;
-      const balances = data.balances || [];
-
-      // Build permission line
-      let permLine = '';
-      if (perms && !perms.error) {
-        if (perms.readOnly) {
-          permLine = ' · ⚠ Read-only key — trading disabled';
-        } else if (perms.canTrade) {
-          permLine = ' · Trade ✓';
-        } else {
-          permLine = ' · ⚠ No SpotTrade permission — orders will fail';
-        }
-      } else if (perms?.error) {
-        permLine = ` · Permissions check failed: ${perms.error}`;
-      }
-
-      // Build balance line
-      let balLine = '';
-      if (balances.length === 0) {
-        balLine = 'No assets found';
-      } else {
-        balLine = balances.map(b => `${b.asset} ${parseFloat(b.free).toFixed(4)}`).join(' · ');
-      }
-
-      const ok = perms?.canTrade ? true : null;
-      setBybitStatus({ ok, msg: `${balLine}${permLine}` });
+      setBybitStatus(formatBybitTestResult(data));
       window.dispatchEvent(new CustomEvent('finik:balance-refresh'));
       setTimeout(() => setBybitStatus(null), 12000);
     } catch (err) {
@@ -272,71 +259,41 @@ export default function Settings() {
                 <h3>Signal detection</h3>
                 <p className="subtitle">Thresholds and filters for OBD pattern detection</p>
 
-                <div className="row-setting">
-                  <div className="row-setting-info">
-                    <strong>Dip threshold</strong>
-                    <span>Minimum OBD amplitude for signal detection (1–50)</span>
-                  </div>
+                <SettingRow label="Dip threshold" description="Minimum OBD amplitude for signal detection (1–50)">
                   <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
                     <input className="input mono" style={{width: 80}} type="number" min={1} max={50} value={threshold} onChange={e => setThreshold(e.target.value)}/>
                     <button className="btn btn-ghost" onClick={saveThreshold}>Save</button>
                   </div>
-                </div>
+                </SettingRow>
 
-                <div className="row-setting">
-                  <div className="row-setting-info">
-                    <strong>Min confidence</strong>
-                    <span>Signals below this threshold won't be sent to Telegram</span>
-                  </div>
+                <SettingRow label="Min confidence" description="Signals below this threshold won't be sent to Telegram">
                   <div style={{display: 'flex', alignItems: 'center', gap: 12, width: 280}}>
-                    <input
-                      type="range"
-                      className="slider"
-                      min="0" max="100"
-                      value={minConfidence}
-                      onChange={e => setMinConfidence(e.target.value)}
-                    />
+                    <input type="range" className="slider" min="0" max="100" value={minConfidence} onChange={e => setMinConfidence(e.target.value)}/>
                     <span className="mono" style={{fontWeight: 600, color: 'var(--primary)', minWidth: 40}}>{minConfidence}%</span>
                     <button className="btn btn-ghost" onClick={saveConfidence} style={{padding: '6px 10px', fontSize: 12}}>Save</button>
                   </div>
-                </div>
+                </SettingRow>
               </div>
 
               <div className="settings-section">
                 <h3>Auto-trading</h3>
                 <p className="subtitle">Automatically execute trades on confirmed signals</p>
 
-                <div className="row-setting">
-                  <div className="row-setting-info">
-                    <strong>Enable auto-trading</strong>
-                    <span>Automatically place order when signal is confirmed</span>
-                  </div>
+                <SettingRow label="Enable auto-trading" description="Automatically place order when signal is confirmed">
                   <Toggle on={autoTrade} onChange={setAutoTrade}/>
-                </div>
+                </SettingRow>
 
                 {autoTrade && (
                   <>
-                    <div className="row-setting">
-                      <div className="row-setting-info">
-                        <strong>Amount per trade (USDT)</strong>
-                        <span>Position size in USDT per auto-trade</span>
-                      </div>
+                    <SettingRow label="Amount per trade (USDT)" description="Position size in USDT per auto-trade">
                       <input className="input mono" style={{width: 120}} type="number" min={1} value={autoTradeAmount} onChange={e => setAutoTradeAmount(e.target.value)}/>
-                    </div>
-                    <div className="row-setting">
-                      <div className="row-setting-info">
-                        <strong>Max open trades</strong>
-                        <span>Maximum number of simultaneous positions</span>
-                      </div>
+                    </SettingRow>
+                    <SettingRow label="Max open trades" description="Maximum number of simultaneous positions">
                       <input className="input mono" style={{width: 120}} type="number" min={1} max={10} value={maxOpenTrades} onChange={e => setMaxOpenTrades(e.target.value)}/>
-                    </div>
-                    <div className="row-setting">
-                      <div className="row-setting-info">
-                        <strong>Enable SHORT signals</strong>
-                        <span>Auto-trades on SHORT (sell asset from balance)</span>
-                      </div>
+                    </SettingRow>
+                    <SettingRow label="Enable SHORT signals" description="Auto-trades on SHORT (sell asset from balance)">
                       <Toggle on={enableShort} onChange={setEnableShort}/>
-                    </div>
+                    </SettingRow>
 
                     {autoTrade && (
                       <div style={{marginTop: 12, padding: 12, background: 'color-mix(in srgb, var(--warn) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)', borderRadius: 'var(--radius)', fontSize: 12, color: 'var(--warn)'}}>
@@ -355,21 +312,13 @@ export default function Settings() {
                 <h3>Signal strategies</h3>
                 <p className="subtitle">Active detection strategies run in parallel</p>
 
-                <div className="row-setting">
-                  <div className="row-setting-info">
-                    <strong>OBD — Order Book Depth</strong>
-                    <span>Detects pressure from order book imbalance (always active)</span>
-                  </div>
+                <SettingRow label="OBD — Order Book Depth" description="Detects pressure from order book imbalance (always active)">
                   <Toggle on={true} onChange={() => {}}/>
-                </div>
+                </SettingRow>
 
-                <div className="row-setting">
-                  <div className="row-setting-info">
-                    <strong>OFI — Order Flow Imbalance</strong>
-                    <span>Detects pressure from real executed trades (60s window)</span>
-                  </div>
+                <SettingRow label="OFI — Order Flow Imbalance" description="Detects pressure from real executed trades (60s window)">
                   <Toggle on={ofiEnabled} onChange={saveOfi}/>
-                </div>
+                </SettingRow>
               </div>
 
               <div className="settings-section">

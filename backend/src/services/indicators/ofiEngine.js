@@ -7,10 +7,9 @@
 import { prisma } from '../../db/prisma.js';
 import { logger } from '../../config/logger.js';
 import { analyzeOfiSignal } from '../claude/orchestrator.js';
-import { sendTelegramNotification, formatSignalMessage } from '../notifications/notifier.js';
-import { broadcast } from '../../ws/hub.js';
 import { getMidPrice } from '../exchange/index.js';
 import { executeAutoTrade } from './engine.js';
+import { runClaudePipeline } from '../signals/claudePipeline.js';
 
 // Per-symbol sliding window
 const ofiState = new Map();
@@ -131,58 +130,12 @@ export async function processAggTrade(pair, { isBuyerMaker, price, qty }) {
 }
 
 async function analyzeOfiWithClaude(signalId, pair, midPrice, signalDirection, ofiRatio) {
-  try {
-    const skipClaude = process.env.SKIP_CLAUDE_ANALYSIS === 'true';
-    const analysis = skipClaude
-      ? { direction: signalDirection, confidence: 80, analysis: 'Claude skipped (test mode)', suggestedSl: null, suggestedTp: null }
-      : await analyzeOfiSignal(pair, midPrice, signalDirection, ofiRatio);
-
-    let entryPrice = midPrice;
-    if (analysis.direction !== 'WAIT') {
-      try {
-        entryPrice = await getMidPrice(pair.tradeSymbol);
-      } catch {}
-    }
-
-    await prisma.signal.update({
-      where: { id: signalId },
-      data: {
-        direction: analysis.direction || 'WAIT',
-        confidence: analysis.confidence != null ? Math.round(analysis.confidence) : null,
-        claudeAnalysis: analysis.analysis || '',
-        suggestedSl: analysis.suggestedSl,
-        suggestedTp: analysis.suggestedTp,
-        price: entryPrice,
-      },
-    });
-
-    const updated = {
-      id: signalId,
-      monitorSymbol: pair.monitorSymbol,
-      tradeSymbol: pair.tradeSymbol,
-      direction: analysis.direction,
-      confidence: analysis.confidence,
-      claudeAnalysis: analysis.analysis || '',
-      suggestedSl: analysis.suggestedSl,
-      suggestedTp: analysis.suggestedTp,
-      price: entryPrice,
-      strategy: 'OFI',
-      ofiRatio,
-    };
-
-    broadcast({ type: 'SIGNAL_UPDATE', signal: updated });
-
-    if (analysis.direction !== 'WAIT') {
-      sendTelegramNotification(formatSignalMessage(updated), analysis.confidence).catch(() => {});
-      executeAutoTrade(signalId, pair, analysis, entryPrice).catch((err) => {
-        logger.error(`OFI auto-trade failed for signal #${signalId}`, { error: err.message });
-      });
-    }
-  } catch (err) {
-    await prisma.signal.update({
-      where: { id: signalId },
-      data: { claudeAnalysis: `Claude error: ${err.message}` },
-    }).catch(() => {});
-    throw err;
-  }
+  await runClaudePipeline(signalId, pair, midPrice, {
+    getAnalysis: async (skipClaude) => {
+      if (skipClaude) return { direction: signalDirection, confidence: 80, analysis: 'Claude skipped (test mode)', suggestedSl: null, suggestedTp: null };
+      return analyzeOfiSignal(pair, midPrice, signalDirection, ofiRatio);
+    },
+    broadcastExtra: { strategy: 'OFI', ofiRatio },
+    executeAutoTrade,
+  });
 }

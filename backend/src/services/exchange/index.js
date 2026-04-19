@@ -30,52 +30,32 @@ export function invalidateExchangeCache() {
   cacheTime = 0;
 }
 
-export async function getAccountBalance() {
+async function getAdapter() {
   const exchange = await getExchange();
-  if (exchange === 'bybit') {
-    const { getAccountBalance: bybitBalance } = await import('../bybit/rest.js');
-    return bybitBalance();
-  }
-  const { getAccountBalance: binanceBalance } = await import('../binance/rest.js');
-  return binanceBalance();
+  return exchange === 'bybit' ? import('../bybit/rest.js') : import('../binance/rest.js');
+}
+
+export async function getAccountBalance() {
+  const { getAccountBalance } = await getAdapter();
+  return getAccountBalance();
 }
 
 export async function getMidPrice(symbol) {
-  const exchange = await getExchange();
-  if (exchange === 'bybit') {
-    const { getMidPrice: bybitMidPrice } = await import('../bybit/rest.js');
-    return bybitMidPrice(symbol);
-  }
-  const { getMidPrice: binanceMidPrice } = await import('../binance/rest.js');
-  return binanceMidPrice(symbol);
+  const { getMidPrice } = await getAdapter();
+  return getMidPrice(symbol);
 }
 
 export async function getKlines(symbol, interval = '1m', limit = 100) {
-  const exchange = await getExchange();
-  if (exchange === 'bybit') {
-    const { getKlines: bybitKlines } = await import('../bybit/rest.js');
-    return bybitKlines(symbol, interval, limit);
-  }
-  const { getKlines: binanceKlines } = await import('../binance/rest.js');
-  return binanceKlines(symbol, interval, limit);
+  const { getKlines } = await getAdapter();
+  return getKlines(symbol, interval, limit);
 }
 
 export async function placeOrder(params) {
-  const exchange = await getExchange();
-  if (exchange === 'bybit') {
-    const { placeOrder: bybitOrder } = await import('../bybit/rest.js');
-    return bybitOrder(params);
-  }
-  const { placeOrder: binanceOrder } = await import('../binance/rest.js');
-  return binanceOrder(params);
+  const { placeOrder } = await getAdapter();
+  return placeOrder(params);
 }
 
 export async function getOrderBook(symbol, limit) {
-  const exchange = await getExchange();
-  if (exchange === 'bybit') {
-    const { getOrderBook: bybitOb } = await import('../bybit/rest.js');
-    return bybitOb(symbol, limit);
-  }
-  const { getOrderBook: binanceOb } = await import('../binance/rest.js');
-  return binanceOb(symbol, limit);
+  const { getOrderBook } = await getAdapter();
+  return getOrderBook(symbol, limit);
 }

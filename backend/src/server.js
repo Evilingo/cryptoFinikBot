@@ -15,9 +15,7 @@ import { initExchangeWs, stopAllExchangeWs } from './services/exchange/wsManager
 import crypto from 'node:crypto';
 import { DEFAULT_PROMPT, DEFAULT_OFI_PROMPT } from './services/claude/prompts.js';
 
-function hashPrompt(text) {
-  return crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
-}
+const hashPrompt = (text) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
 import authRoutes from './routes/auth.js';
 import pairsRoutes from './routes/pairs.js';
 import signalsRoutes from './routes/signals.js';
