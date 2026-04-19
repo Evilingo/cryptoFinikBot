@@ -295,13 +295,79 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-## Раздел 5 — Безопасность и архитектура (full code review, 2026-04-19)
+## Раздел 5 — Инфраструктура торговли (trading improvements)
+
+---
+
+### TRADE-01 — Принудительный выход при обратном сигнале
+**Приоритет:** Medium
+**Проблема:** Если открыт LONG на ETH и OBD генерирует SHORT сигнал — система либо игнорирует его (лимит позиций), либо открывает вторую позицию. Нет механизма "умного выхода" при смене рыночной структуры.
+**Исправление:** В `executeAutoTrade` при direction != направления открытой Trade на этом символе — принудительно закрыть открытую позицию (market sell/buy) до размещения новой. По сути: обратный сигнал = сигнал выхода из текущей позиции.
+**Примечание:** На Spot SHORT — это продажа актива. Отдельная "шорт-позиция" не создаётся — просто закрываем LONG. Реализация: проверять `openTrade.side !== side` → вызвать `cancelAllOpenOrders` + market close.
+**Зависимости:** Требует TRADE-02 (один символ — одна позиция).
+
+---
+
+### TRADE-02 — maxOpenTrades per symbol вместо глобального
+**Приоритет:** High
+**Проблема:** `openCount = prisma.trade.count({ where: { status: 'OPEN' } })` — глобальный счётчик. Позволяет иметь несколько OPEN Trade на одном символе, что ломает `findFirst` в userDataStream и делает `cancelAllOpenOrders` опасным (отменяет TP/SL всех позиций по символу).
+**Исправление:** Заменить проверку на `{ status: 'OPEN', symbol: pair.tradeSymbol }`. Один символ = максимум одна позиция. Глобальный `maxOpenTrades` сохранить для ограничения суммарной экспозиции по всем символам.
+
+---
+
+### TRADE-03 — Reconciliation job: сверка открытых Trade с биржей
+**Приоритет:** Medium
+**Проблема:** Если fill-событие пропущено (WS разрыв) — Trade навсегда остаётся `status='OPEN'` в DB. Нет механизма периодической сверки.
+**Исправление:** Cron каждые 5 минут: для каждой OPEN Trade запросить `/v5/order/history` по `binanceOrderId` — если биржа показывает исполненный exit ордер → закрыть Trade в DB с реальным PnL.
+
+---
+
+### TRADE-04 — PnL в userDataStream не учитывает комиссии
+**Приоритет:** Low
+**Проблема:** В `userDataStream.js` PnL считается как чистая разница цен без вычета 0.2% round-trip fee. Бэктест вычитает комиссии, реальные сделки — нет. Статистика реальных сделок выглядит лучше бэктеста искусственно.
+**Исправление:** `pnl = roundedPnl - 0.2` (или точнее — вычитать 0.1% на вход + 0.1% на выход).
+
+---
+
+### TRADE-05 — placeSeparateTpSl fire-and-forget: ошибка SL не останавливает Trade
+**Файл:** `backend/src/services/bybit/rest.js:placeSeparateTpSl()`
+**Приоритет:** High
+**Проблема:** `placeSeparateTpSl()` вызывается как fire-and-forget (`.catch(err => logger.warn(...))`). Если SL stop-ордер не создался (ошибка API, precision issue, rate limit) — Trade записывается в DB со статусом OPEN, позиция куплена, но стоп-лосса на бирже нет. Логируется warn, основной поток не прерывается.
+**Исправление:** Ждать результата `placeSeparateTpSl` (await + try/catch). Если SL не создался — либо выходить из позиции немедленно (market sell), либо бросать ошибку и не создавать Trade запись. Минимум — Telegram алерт с требованием ручного вмешательства.
+
+---
+
+### TRADE-06 — Exit ордера матчатся по symbol+side, не по orderId
+**Файл:** `backend/src/services/bybit/userDataStream.js:handleOrderFill()`
+**Приоритет:** High
+**Проблема:** При получении exit fill-события (TP или SL) система находит Trade через `findFirst({ symbol, status:'OPEN' })` — без привязки к конкретному orderId. `binanceOrderId` хранит entry orderId, но для exit не используется. При нескольких OPEN Trade на одном символе закрывается случайная запись (без ORDER BY в findFirst).
+**Исправление:** Для separate TP/SL ордеров (Classic account) — `orderLinkId` содержит `tp-{entryOrderId[-28:]}` или `sl-{...}`. Парсить prefix (`tp-` / `sl-`) + suffix → искать Trade по `binanceOrderId LIKE %suffix`. Это привяжет exit к конкретному Trade.
+
+---
+
+### TRADE-07 — Race condition: fill-событие до Trade.create в DB
+**Файл:** `backend/src/services/bybit/userDataStream.js`, `backend/src/services/indicators/engine.js`
+**Приоритет:** Medium
+**Проблема:** `placeOrder()` возвращает orderId → 300ms задержка (avgPrice) → `Trade.create()`. Если fill-событие для entry ордера придёт раньше чем Trade записана в DB (редко, но возможно при быстром исполнении) — entry fill не обновит `trade.price`, exit fill найдёт `openTrade=null` и пропустит закрытие.
+**Исправление:** Уменьшить 300ms задержку или сначала создать Trade с `price=0`, потом обновить avgPrice. Entry fill обновляет price если `trade.price === 0` — эта логика уже есть, надо убедиться что Trade существует до того как могут придти fill-события.
+
+---
+
+### TRADE-08 — Exit fill пропускается при отсутствии OPEN Trade в DB
+**Файл:** `backend/src/services/bybit/userDataStream.js:handleOrderFill()`
+**Приоритет:** Medium
+**Проблема:** Если `openTrade = null` (Trade удалена вручную, или ещё не создана — см. TRADE-07), то `isOpposingSide = false`. Для classic-аккаунта `stopOrderType = ''`, значит `isInlineTpSl = false`. `isExitOrder = false` → fill обрабатывается как entry fill, Trade не закрывается, Telegram не отправляется. Silent skip.
+**Исправление:** Логировать warn при получении Filled ордера с Sell-направлением если нет OPEN Trade на символе — чтобы хотя бы видеть проблему в логах.
+
+---
+
+## Раздел 6 — Безопасность и архитектура (full code review, 2026-04-19)
 
 Источник: полный аудит кодовой базы (агент).
 
 ---
 
-### SEC-01 — WebSocket не проверяет JWT токен
+### ~~SEC-01~~ — WebSocket не проверяет JWT токен ✅ FIXED
 **Файл:** `backend/src/ws/hub.js:8-39`
 **Приоритет:** CRITICAL
 **Проблема:** Токен принимается из URL (`/ws?token=...`) но JWT не верифицируется. Любой клиент (без авторизации) может подключиться и получать live SIGNAL, SIGNAL_UPDATE, SIGNAL_OUTCOME — реальные торговые сигналы с ценами SL/TP.
@@ -309,7 +375,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### SEC-02 — Публичные API без аутентификации
+### ~~SEC-02~~ — Публичные API без аутентификации ✅ FIXED
 **Файлы:** `routes/balance.js`, `routes/pairs.js`, `routes/signals.js`, `routes/stats.js`, `routes/klines.js`
 **Приоритет:** CRITICAL
 **Проблема:** Эндпоинты `/api/balance`, `/api/pairs`, `/api/signals`, `/api/stats*`, `/api/klines` не имеют `authMiddleware`. Любой пользователь может получить баланс аккаунта, историю сигналов, P&L статистику без логина.
