@@ -307,6 +307,7 @@ export async function cancelAllOpenOrders(symbol) {
   const results = await Promise.allSettled([
     privatePost('/v5/order/cancel-all', { category: 'spot', symbol }),
     privatePost('/v5/order/cancel-all', { category: 'spot', symbol, orderFilter: 'StopOrder' }),
+    privatePost('/v5/order/cancel-all', { category: 'spot', symbol, orderFilter: 'tpSlOrder' }),
   ]);
   const errs = results.filter(r => r.status === 'rejected').map(r => r.reason?.message);
   if (errs.length) logger.warn('cancelAllOpenOrders partial failure', { symbol, errs });
@@ -402,7 +403,15 @@ export async function getOrderHistory(symbol, limit = 50) {
 export async function getOpenOrders(symbol) {
   const params = { category: 'spot' };
   if (symbol) params.symbol = symbol;
-  return privateGet('/v5/order/realtime', params);
+  const [regular, tpsl] = await Promise.allSettled([
+    privateGet('/v5/order/realtime', params),
+    privateGet('/v5/order/realtime', { ...params, orderFilter: 'tpSlOrder' }),
+  ]);
+  const list = [
+    ...(regular.status === 'fulfilled' ? regular.value.result?.list || [] : []),
+    ...(tpsl.status === 'fulfilled' ? tpsl.value.result?.list || [] : []),
+  ];
+  return { result: { list } };
 }
 
 export async function cancelOrder(symbol, orderId) {
