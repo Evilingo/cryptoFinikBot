@@ -162,6 +162,8 @@ Connects to Binance WebSocket for real order execution events:
 - Creates `listenKey` via `POST /api/v3/userDataStream`, refreshes every 20 min
 - On FILLED event for LIMIT (TP) or STOP_LOSS_LIMIT (SL): closes Trade, calculates real PnL, resolves Signal outcome, sends Telegram
 - Reconnects automatically on disconnect; skipped gracefully if no API keys configured
+See ARCHITECTURE.md for the complete trading lifecycle diagram.
+**Rule:** Update ARCHITECTURE.md in the same commit whenever changes affect the trading pipeline (Signal/Trade flow, order types, exit detection, DB fields, Telegram triggers).
 
 ### Backtesting (`tracker.js:runBacktest`)
 Uses `ObdSnapshot` table (filled every 30s) to replay signal detection:
