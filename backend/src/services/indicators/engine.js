@@ -152,6 +152,13 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     return;
   }
 
+  // Per-symbol check: only one OPEN trade per symbol at a time
+  const symbolOpenCount = await prisma.trade.count({ where: { status: 'OPEN', symbol: pair.tradeSymbol } });
+  if (symbolOpenCount > 0) {
+    logger.info(`[AutoTrade] Skipping — already have open trade on ${pair.tradeSymbol}`);
+    return;
+  }
+
   // Check open trades limit
   const openCount = await prisma.trade.count({ where: { status: 'OPEN' } });
   if (openCount >= settings.maxOpenTrades) {
@@ -206,7 +213,41 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     takeProfit: suggestedTp || undefined,
   });
 
-  await prisma.trade.create({
+  // If SL placement failed, do not create a Trade record — close the position immediately
+  if (result.slFailed) {
+    logger.error('Auto-trade aborted: SL failed, closing position immediately', { symbol: pair.tradeSymbol, orderId: result.orderId });
+    const closeSide = side === 'BUY' ? 'SELL' : 'BUY';
+    try {
+      await placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity });
+      logger.info('Position closed after SL failure', { symbol: pair.tradeSymbol });
+    } catch (closeErr) {
+      logger.error('CRITICAL: failed to close position after SL failure — manual intervention required', {
+        symbol: pair.tradeSymbol,
+        orderId: result.orderId,
+        error: closeErr.message,
+      });
+      sendTelegramNotification(
+        `🚨 КРИТИЧНО: не удалось закрыть позицию ${side} ${pair.tradeSymbol} после провала SL\nордер: ${result.orderId}\nошибка: ${closeErr.message}`,
+        null,
+      ).catch(() => {});
+    }
+    return;
+  }
+
+  // Final guard: re-check after placeOrder (network call) to prevent race condition (TRADE-02)
+  const postOrderOpenCount = await prisma.trade.count({ where: { status: 'OPEN', symbol: pair.tradeSymbol } });
+  if (postOrderOpenCount > 0) {
+    logger.error('[AutoTrade] Race condition detected — open trade already exists after placeOrder. Closing position.', {
+      symbol: pair.tradeSymbol, orderId: result.orderId,
+    });
+    const closeSide = side === 'BUY' ? 'SELL' : 'BUY';
+    placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity }).catch((err) =>
+      logger.error('Failed to close duplicate position', { symbol: pair.tradeSymbol, error: err.message })
+    );
+    return;
+  }
+
+  const trade = await prisma.trade.create({
     data: {
       signalId,
       symbol: pair.tradeSymbol,
@@ -217,6 +258,7 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
       takeProfit: suggestedTp || null,
       binanceOrderId: result.orderId,
       status: 'OPEN',
+      slOrderFailed: false,
     },
   });
 
@@ -225,6 +267,7 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     orderId: result.orderId,
     price: result.price,
     type: result.type,
+    tradeId: trade.id,
   });
 
   // Notify about auto-trade

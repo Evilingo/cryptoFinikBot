@@ -105,7 +105,10 @@ model Trade {
   takeProfit     Float?
   binanceOrderId String
   status         String    @default("OPEN")
+  slOrderFailed  Boolean   @default(false)
   pnl            Float?
   createdAt      DateTime  @default(now())
   closedAt       DateTime?
+
+  @@index([symbol, status])
 }

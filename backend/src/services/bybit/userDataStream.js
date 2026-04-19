@@ -48,7 +48,7 @@ async function handleOrderFill(order) {
   const filledPrice = parseFloat(avgPrice);
 
   // Find open trade for this symbol to determine if this is entry or exit
-  const openTrade = await prisma.trade.findFirst({ where: { symbol, status: 'OPEN' } });
+  const openTrade = await prisma.trade.findFirst({ where: { symbol, status: 'OPEN' }, orderBy: { createdAt: 'asc' } });
 
   // Exit = opposite side of the open trade (Sell fills a BUY position, Buy fills a SELL position)
   // Also handles inline UTA TP/SL (stopOrderType TakeProfit/StopLoss)
@@ -58,6 +58,10 @@ async function handleOrderFill(order) {
     (side === 'Buy' && openTrade.side === 'SELL')
   );
   const isExitOrder = isInlineTpSl || isOpposingSide;
+
+  if (!openTrade && isExitOrder) {
+    logger.warn(`[UserDataStream] Exit fill received for ${symbol} but no OPEN trade found in DB. orderId=${orderId}`);
+  }
 
   if (!isExitOrder) {
     // Entry order filled — update Trade record with confirmed fill price
@@ -85,6 +89,7 @@ async function handleOrderFill(order) {
 
   const trade = await prisma.trade.findFirst({
     where: { symbol, status: 'OPEN' },
+    orderBy: { createdAt: 'asc' },
   });
   if (!trade) return;
 

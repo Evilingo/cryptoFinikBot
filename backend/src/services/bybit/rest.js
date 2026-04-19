@@ -3,6 +3,7 @@ import { prisma } from '../../db/prisma.js';
 import { decrypt } from '../../config/crypto.js';
 import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
+import { sendTelegramNotification } from '../notifications/notifier.js';
 
 const BASE_URL = env.bybitTestnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
 // Market data is always fetched from production — testnet has synthetic/flat prices
@@ -247,30 +248,65 @@ function formatNum(value, precision) {
   return parseFloat(value).toFixed(precision);
 }
 
+// Returns true if SL placement failed (position is unprotected — caller must close immediately).
 async function placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, entryOrderId, info) {
   const idPrefix = String(entryOrderId).slice(-28);
   const triggerDirection = exitSide === 'Sell' ? 2 : 1; // Sell SL: falls to; Buy SL: rises to
 
-  await Promise.allSettled([
-    takeProfit && privatePost('/v5/order/create', {
-      category: 'spot', symbol, side: exitSide,
-      orderType: 'Limit', qty: qtyStr,
-      price: formatNum(takeProfit, info.pricePrecision),
-      timeInForce: 'GTC',
-      orderLinkId: `tp-${idPrefix}`,
-    }).then(r => logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit }))
-      .catch(err => logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit })),
+  const promises = [];
+  if (takeProfit) {
+    promises.push(
+      privatePost('/v5/order/create', {
+        category: 'spot', symbol, side: exitSide,
+        orderType: 'Limit', qty: qtyStr,
+        price: formatNum(takeProfit, info.pricePrecision),
+        timeInForce: 'GTC',
+        orderLinkId: `tp-${idPrefix}`,
+      }).then(r => logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit }))
+        .catch(err => {
+          logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit });
+          sendTelegramNotification(
+            `⚠️ TP order FAILED for ${symbol} — position open without take-profit\nTP: ${takeProfit}\nError: ${err.message}`,
+            null,
+          ).catch((tgErr) => {
+            logger.warn(`TP FAILED for ${symbol} and Telegram unavailable`, { takeProfit, error: err.message, tgError: tgErr.message });
+          });
+        })
+    );
+  }
 
-    stopLoss && privatePost('/v5/order/create', {
+  let slPromise = null;
+  if (stopLoss) {
+    slPromise = privatePost('/v5/order/create', {
       category: 'spot', symbol, side: exitSide,
       orderType: 'Market', qty: qtyStr,
       triggerPrice: formatNum(stopLoss, info.pricePrecision),
       triggerBy: 'LastPrice', triggerDirection,
       orderFilter: 'StopOrder',
       orderLinkId: `sl-${idPrefix}`,
-    }).then(r => logger.info('SL stop order placed', { symbol, orderId: r.result?.orderId, sl: stopLoss }))
-      .catch(err => logger.warn('SL stop order failed', { error: err.message, symbol, stopLoss })),
-  ]);
+    }).then(r => logger.info('SL stop order placed', { symbol, orderId: r.result?.orderId, sl: stopLoss }));
+    promises.push(slPromise);
+  }
+
+  await Promise.allSettled(promises.filter(Boolean));
+
+  if (stopLoss && slPromise) {
+    try {
+      await slPromise;
+    } catch (err) {
+      const errMsg = err?.message || 'unknown error';
+      logger.error('SL stop order FAILED — closing position immediately', { symbol, stopLoss, error: errMsg });
+      sendTelegramNotification(
+        `🚨 SL order FAILED for ${symbol} — closing position now\nSL: ${stopLoss}\nError: ${errMsg}`,
+        null,
+      ).catch(() => {
+        logger.error(`SL FAILED for ${symbol} and Telegram unavailable`, { stopLoss, error: errMsg });
+      });
+      return true; // slFailed
+    }
+  }
+
+  return false; // all ok
 }
 
 export async function cancelAllOpenOrders(symbol) {
@@ -317,8 +353,6 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
   const orderId = orderData.result?.orderId;
   logger.info('Bybit market order placed', { symbol, side, orderId });
 
-  // Wait 300ms then fetch avg price from order history
-  await new Promise((r) => setTimeout(r, 300));
   let avgPrice = 0;
   try {
     const histData = await privateGet('/v5/order/history', { category: 'spot', orderId });
@@ -328,15 +362,15 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
     logger.warn('Failed to fetch Bybit order avgPrice', { error: err.message, orderId });
   }
 
+  let slFailed = false;
   if (usedSeparateOrders) {
-    placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, orderId, info).catch((err) => {
-      logger.warn('Separate TP/SL placement failed', { error: err.message, symbol });
-    });
+    slFailed = await placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, orderId, info);
   }
 
   return {
     orderId: String(orderId),
     price: avgPrice,
+    slFailed,
     type: usedSeparateOrders ? 'MARKET+SEPARATE_TPSL' : (stopLoss || takeProfit) ? 'MARKET+TPSL' : 'MARKET',
   };
 }
