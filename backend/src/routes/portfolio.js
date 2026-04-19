@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
+import { prisma } from '../db/prisma.js';
 import {
   getAccountBalance,
   getOpenOrders,
   getOrderHistory,
   cancelOrder,
+  cancelAllOpenOrders,
   placeManualOrder,
 } from '../services/bybit/rest.js';
 
@@ -70,6 +72,31 @@ router.post('/orders', async (req, res) => {
     takeProfit: takeProfit ? parseFloat(takeProfit) : null,
   });
   res.json(result || { ok: true });
+});
+
+// POST /api/portfolio/trades/:id/close — market-close a bot trade
+router.post('/trades/:id/close', async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid trade id' });
+
+  const trade = await prisma.trade.findUnique({ where: { id } });
+  if (!trade) return res.status(404).json({ error: 'Trade not found' });
+  if (trade.status !== 'OPEN') return res.status(400).json({ error: 'Trade is not open' });
+
+  const exitSide = trade.side === 'BUY' ? 'SELL' : 'BUY';
+
+  // Cancel SL/TP before market exit to avoid double-fill
+  await cancelAllOpenOrders(trade.symbol).catch(() => {});
+
+  // Place market exit — userDataStream will close the Trade record on fill
+  const result = await placeManualOrder({
+    symbol: trade.symbol,
+    side: exitSide,
+    orderType: 'Market',
+    qty: trade.quantity,
+  });
+
+  res.json({ ok: true, orderId: result?.orderId });
 });
 
 // DELETE /api/portfolio/orders/:orderId?symbol=BTCUSDT

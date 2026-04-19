@@ -29,6 +29,7 @@ export default function Portfolio() {
 
   const [botTrades, setBotTrades] = useState([]);
   const [loadingBotTrades, setLoadingBotTrades] = useState(true);
+  const [closing, setClosing] = useState(null); // tradeId being closed
 
   // Load initial data
   useEffect(() => {
@@ -95,6 +96,21 @@ export default function Portfolio() {
       alert(err.response?.data?.error || 'Cancel failed');
     } finally {
       setCancelling(null);
+    }
+  };
+
+  const closeTrade = async (trade) => {
+    if (!window.confirm(`Close ${trade.side} ${trade.symbol} at market? This will sell ${trade.quantity} immediately.`)) return;
+    setClosing(trade.id);
+    try {
+      await api.post(`/portfolio/trades/${trade.id}/close`);
+      showStatus(true, `${trade.symbol} close order placed`);
+      // Optimistically mark as closing — userDataStream will set CLOSED on fill
+      setBotTrades(prev => prev.map(t => t.id === trade.id ? { ...t, status: 'CLOSING' } : t));
+    } catch (err) {
+      showStatus(false, err.response?.data?.error || 'Close failed');
+    } finally {
+      setClosing(null);
     }
   };
 
@@ -430,6 +446,7 @@ export default function Portfolio() {
                     <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>Qty</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Status</th>
                     <th style={{ textAlign: 'right', padding: '6px 0 6px 8px', fontWeight: 600 }}>PnL</th>
+                    <th style={{ width: 80 }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -464,12 +481,24 @@ export default function Portfolio() {
                           {t.quantity}
                         </td>
                         <td style={{ padding: '10px 8px' }}>
-                          <span className={`badge ${isOpen ? 'badge-pending' : 'badge-win'}`}>
-                            {isOpen ? 'OPEN' : 'CLOSED'}
+                          <span className={`badge ${t.status === 'OPEN' ? 'badge-pending' : t.status === 'CLOSING' ? 'badge-warn' : 'badge-win'}`}>
+                            {t.status}
                           </span>
                         </td>
                         <td style={{ padding: '10px 0 10px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: pnlColor, fontWeight: isOpen ? 400 : 600 }}>
                           {t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}${t.pnl}%` : '—'}
+                        </td>
+                        <td style={{ padding: '10px 0', textAlign: 'right' }}>
+                          {isOpen && (
+                            <button
+                              className="btn btn-ghost"
+                              style={{ fontSize: 11, padding: '4px 8px', color: 'var(--short)', borderColor: 'var(--short)' }}
+                              onClick={() => closeTrade(t)}
+                              disabled={closing === t.id}
+                            >
+                              {closing === t.id ? '…' : 'Close'}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
