@@ -8,6 +8,7 @@ import Signals from './pages/Signals';
 import Settings from './pages/Settings';
 import Stats from './pages/Stats';
 import Trades from './pages/Trades';
+import Portfolio from './pages/Portfolio';
 import Sidebar from './components/layout/Sidebar';
 import SignalModal from './components/SignalModal';
 import LiveSignalBanner from './components/LiveSignalBanner';
@@ -64,6 +65,7 @@ function AppLayout({ activeSignal, setActiveSignal, liveBanner, setLiveBanner })
             <Route path="/" element={<Dashboard onOpenSignal={setActiveSignal} onNewSignal={setLiveBanner} />} />
             <Route path="/signals" element={<Signals onOpenSignal={setActiveSignal} />} />
             <Route path="/trades" element={<Trades />} />
+            <Route path="/portfolio" element={<AdminRoute><Portfolio /></AdminRoute>} />
             <Route path="/stats" element={<Stats />} />
             <Route
               path="/settings"

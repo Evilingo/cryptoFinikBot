@@ -399,6 +399,45 @@ export async function getOrderHistory(symbol, limit = 50) {
   return privateGet('/v5/order/history', { category: 'spot', symbol, limit });
 }
 
+export async function getOpenOrders(symbol) {
+  const params = { category: 'spot' };
+  if (symbol) params.symbol = symbol;
+  return privateGet('/v5/order/realtime', params);
+}
+
+export async function cancelOrder(symbol, orderId) {
+  return privatePost('/v5/order/cancel', { category: 'spot', symbol, orderId });
+}
+
+export async function placeManualOrder({ symbol, side, orderType, qty, price, triggerPrice, stopLoss, takeProfit }) {
+  const info = await getSymbolInfo(symbol);
+  const bybitSide = side === 'BUY' ? 'Buy' : 'Sell';
+
+  const body = {
+    category: 'spot',
+    symbol,
+    side: bybitSide,
+    orderType,   // 'Market' | 'Limit'
+    qty: formatNum(qty, info.qtyPrecision),
+    marketUnit: 'baseCoin',
+  };
+
+  if (price) body.price = formatNum(price, info.pricePrecision);
+  if (stopLoss) body.stopLoss = formatNum(stopLoss, info.pricePrecision);
+  if (takeProfit) body.takeProfit = formatNum(takeProfit, info.pricePrecision);
+
+  // Stop-Limit: triggerPrice присутствует → это условный ордер, нужен orderFilter: 'StopOrder'
+  // Без него Bybit проигнорирует triggerPrice и создаст обычный Limit-ордер
+  if (triggerPrice) {
+    body.triggerPrice = formatNum(triggerPrice, info.pricePrecision);
+    body.triggerBy = 'LastPrice';
+    body.orderFilter = 'StopOrder';
+  }
+
+  const data = await privatePost('/v5/order/create', body);
+  return data.result;
+}
+
 // Stubs — Bybit uses WS auth (not listenKey)
 export async function createListenKey() {
   return null;

@@ -26,6 +26,7 @@ import balanceRoutes from './routes/balance.js';
 import klinesRoutes from './routes/klines.js';
 import statsRoutes from './routes/stats.js';
 import telegramRoutes from './routes/telegram.js';
+import portfolioRoutes from './routes/portfolio.js';
 import { setupTelegramWebhook } from './services/notifications/telegramBot.js';
 import { reconcileOpenTrades } from './services/bybit/reconciliation.js';
 
@@ -52,6 +53,7 @@ app.use('/api/balance', balanceRoutes);
 app.use('/api/klines', klinesRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/telegram', telegramRoutes);
+app.use('/api/portfolio', portfolioRoutes);
 
 // SPA fallback — all non-API routes serve index.html
 app.use((req, res, next) => {

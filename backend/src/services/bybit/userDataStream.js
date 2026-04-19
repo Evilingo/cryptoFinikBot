@@ -147,6 +147,25 @@ async function handleOrderFill(order) {
   ).catch(() => {});
 }
 
+function normalizePortfolioOrder(o) {
+  return {
+    orderId: o.orderId,
+    orderLinkId: o.orderLinkId,
+    symbol: o.symbol,
+    side: o.side,
+    orderType: o.orderType,
+    stopOrderType: o.stopOrderType,
+    price: parseFloat(o.price || 0),
+    qty: parseFloat(o.qty || 0),
+    cumExecQty: parseFloat(o.cumExecQty || 0),
+    avgPrice: parseFloat(o.avgPrice || 0),
+    stopLoss: parseFloat(o.stopLoss || 0),
+    takeProfit: parseFloat(o.takeProfit || 0),
+    orderStatus: o.orderStatus,
+    updatedTime: parseInt(o.updatedTime || 0),
+  };
+}
+
 function connect(apiKey, secret) {
   if (ws) { ws.removeAllListeners(); ws.close(); ws = null; }
   clearTimers();
@@ -179,10 +198,10 @@ function connect(apiKey, secret) {
     try {
       const msg = JSON.parse(raw);
 
-      // Auth success → subscribe to order topic
+      // Auth success → subscribe to order and wallet topics
       if (msg.op === 'auth' && msg.success === true) {
-        logger.info('Bybit Private WS authenticated, subscribing to order topic');
-        ws.send(JSON.stringify({ op: 'subscribe', args: ['order'] }));
+        logger.info('Bybit Private WS authenticated, subscribing to order and wallet topics');
+        ws.send(JSON.stringify({ op: 'subscribe', args: ['order', 'wallet'] }));
         return;
       }
 
@@ -197,9 +216,27 @@ function connect(apiKey, secret) {
       // Order fill events
       if (msg.topic === 'order' && Array.isArray(msg.data)) {
         for (const order of msg.data) {
+          // Broadcast portfolio order update to frontend
+          broadcast({ type: 'PORTFOLIO_ORDER', order: normalizePortfolioOrder(order) });
           handleOrderFill(order).catch((err) =>
             logger.error('Bybit order fill handler error', { error: err.message })
           );
+        }
+      }
+
+      // Wallet balance updates
+      if (msg.topic === 'wallet' && Array.isArray(msg.data)) {
+        for (const account of msg.data) {
+          const coins = (account.coin || [])
+            .filter(c => parseFloat(c.walletBalance) > 0)
+            .map(c => ({
+              asset: c.coin,
+              free: parseFloat(c.availableToWithdraw || c.free || 0),
+              locked: parseFloat(c.locked || 0),
+              total: parseFloat(c.walletBalance),
+              usdValue: parseFloat(c.usdValue || 0),
+            }));
+          broadcast({ type: 'PORTFOLIO_BALANCE', coins });
         }
       }
     } catch (err) {
