@@ -119,8 +119,8 @@ router.put('/exchange', authMiddleware, async (req, res) => {
 router.put('/telegram', authMiddleware, async (req, res) => {
   const { token, chatId } = req.body;
   const data = {};
-  if (token !== undefined) data.telegramToken = token || null;
-  if (chatId !== undefined) data.telegramChatId = chatId || null;
+  if (token !== undefined) data.telegramToken = token ? encrypt(token) : null;
+  if (chatId !== undefined) data.telegramChatId = chatId ? encrypt(chatId) : null;
   if (Object.keys(data).length > 0) {
     await prisma.settings.update({ where: { id: 1 }, data });
   }

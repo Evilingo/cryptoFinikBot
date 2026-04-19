@@ -1,6 +1,7 @@
 import { prisma } from '../../db/prisma.js';
 import { logger } from '../../config/logger.js';
 import { getSignalStats } from '../signals/tracker.js';
+import { safeDecrypt } from '../../config/crypto.js';
 
 async function sendBotMessage(token, chatId, text, replyMarkup = null) {
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -96,7 +97,7 @@ function buildStatsKeyboard(activePeriod) {
 export async function handleTelegramUpdate(update) {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
   if (!settings?.telegramToken) return;
-  const { telegramToken: token } = settings;
+  const token = safeDecrypt(settings.telegramToken);
 
   // Callback query (inline button taps)
   if (update.callback_query) {
@@ -113,7 +114,8 @@ export async function handleTelegramUpdate(update) {
   const msg = update.message;
   if (!msg?.text) return;
 
-  const channelChatId = settings.telegramChatId; // always reply to the configured channel
+  if (!settings?.telegramChatId) return;
+  const channelChatId = safeDecrypt(settings.telegramChatId); // always reply to the configured channel
   const text = msg.text.split('@')[0].trim(); // strip @botname suffix
 
   if (text === '/start' || text === '/help') {
@@ -134,8 +136,9 @@ export async function setupTelegramWebhook(baseUrl) {
     return;
   }
 
+  const token = safeDecrypt(settings.telegramToken);
   const webhookUrl = `${baseUrl}/telegram/webhook`;
-  const url = `https://api.telegram.org/bot${settings.telegramToken}/setWebhook`;
+  const url = `https://api.telegram.org/bot${token}/setWebhook`;
 
   try {
     const res = await fetch(url, {

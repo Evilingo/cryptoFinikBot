@@ -14,6 +14,7 @@ import { initExchangeWs, stopAllExchangeWs } from './services/exchange/wsManager
 
 import crypto from 'node:crypto';
 import { DEFAULT_PROMPT, DEFAULT_OFI_PROMPT } from './services/claude/prompts.js';
+import { encrypt } from './config/crypto.js';
 
 const hashPrompt = (text) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
 import authRoutes from './routes/auth.js';
@@ -100,8 +101,8 @@ async function seedAdmin() {
         promptHash: currentHash,
         ofiClaudePrompt: DEFAULT_OFI_PROMPT,
         ofiPromptHash: currentOfiHash,
-        telegramToken: env.telegramToken,
-        telegramChatId: env.telegramChatId,
+        telegramToken: env.telegramToken ? encrypt(env.telegramToken) : undefined,
+        telegramChatId: env.telegramChatId ? encrypt(env.telegramChatId) : undefined,
       },
     });
     logger.info('Default settings created');
@@ -121,8 +122,8 @@ async function seedAdmin() {
     }
 
     if (env.telegramToken && !settings.telegramToken) {
-      updates.telegramToken = env.telegramToken;
-      updates.telegramChatId = env.telegramChatId;
+      updates.telegramToken = encrypt(env.telegramToken);
+      updates.telegramChatId = env.telegramChatId ? encrypt(env.telegramChatId) : null;
       logger.info('Telegram credentials synced from env to DB');
     }
 
