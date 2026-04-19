@@ -197,3 +197,8 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
 
   return { orderId: String(entryData.orderId), price: avgPrice, type: 'MARKET' };
 }
+
+export async function cancelAllOpenOrders(symbol) {
+  await privateRequest('DELETE', '/api/v3/openOrders', { symbol });
+  logger.info('Cancelled all open orders', { symbol });
+}

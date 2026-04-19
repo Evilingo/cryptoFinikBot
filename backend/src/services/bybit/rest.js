@@ -249,45 +249,28 @@ function formatNum(value, precision) {
 
 async function placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, entryOrderId, info) {
   const idPrefix = String(entryOrderId).slice(-28);
+  const triggerDirection = exitSide === 'Sell' ? 2 : 1; // Sell SL: falls to; Buy SL: rises to
 
-  if (takeProfit) {
-    try {
-      const r = await privatePost('/v5/order/create', {
-        category: 'spot',
-        symbol,
-        side: exitSide,
-        orderType: 'Limit',
-        qty: qtyStr,
-        price: formatNum(takeProfit, info.pricePrecision),
-        timeInForce: 'GTC',
-        orderLinkId: `tp-${idPrefix}`,
-      });
-      logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit });
-    } catch (err) {
-      logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit });
-    }
-  }
+  await Promise.allSettled([
+    takeProfit && privatePost('/v5/order/create', {
+      category: 'spot', symbol, side: exitSide,
+      orderType: 'Limit', qty: qtyStr,
+      price: formatNum(takeProfit, info.pricePrecision),
+      timeInForce: 'GTC',
+      orderLinkId: `tp-${idPrefix}`,
+    }).then(r => logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit }))
+      .catch(err => logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit })),
 
-  if (stopLoss) {
-    const triggerDirection = exitSide === 'Sell' ? 2 : 1; // Sell SL: falls to; Buy SL: rises to
-    try {
-      const r = await privatePost('/v5/order/create', {
-        category: 'spot',
-        symbol,
-        side: exitSide,
-        orderType: 'Market',
-        qty: qtyStr,
-        triggerPrice: formatNum(stopLoss, info.pricePrecision),
-        triggerBy: 'LastPrice',
-        triggerDirection,
-        orderFilter: 'StopOrder',
-        orderLinkId: `sl-${idPrefix}`,
-      });
-      logger.info('SL stop order placed', { symbol, orderId: r.result?.orderId, sl: stopLoss });
-    } catch (err) {
-      logger.warn('SL stop order failed', { error: err.message, symbol, stopLoss });
-    }
-  }
+    stopLoss && privatePost('/v5/order/create', {
+      category: 'spot', symbol, side: exitSide,
+      orderType: 'Market', qty: qtyStr,
+      triggerPrice: formatNum(stopLoss, info.pricePrecision),
+      triggerBy: 'LastPrice', triggerDirection,
+      orderFilter: 'StopOrder',
+      orderLinkId: `sl-${idPrefix}`,
+    }).then(r => logger.info('SL stop order placed', { symbol, orderId: r.result?.orderId, sl: stopLoss }))
+      .catch(err => logger.warn('SL stop order failed', { error: err.message, symbol, stopLoss })),
+  ]);
 }
 
 export async function cancelAllOpenOrders(symbol) {
