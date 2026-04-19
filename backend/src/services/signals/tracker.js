@@ -466,5 +466,23 @@ export async function getSignalStats(pairId = null, since = null) {
     select: { id: true, outcome: true, outcomePnl: true, direction: true, createdAt: true, pair: { select: { monitorSymbol: true } } },
   });
 
-  return { total, wins, losses, breakeven, winRate, avgPnl, totalPnl: Math.round(totalPnl * 100) / 100, byPair, recent: recent.reverse(), waitTotal };
+  // Max drawdown and max consecutive losses for the Overview KPIs
+  let equity = 0, peak = 0, maxDrawdown = 0;
+  let maxConsecutiveLosses = 0, streak = 0;
+  for (const s of signals) {
+    equity += s.outcomePnl || 0;
+    if (equity > peak) peak = equity;
+    const dd = peak - equity;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+    if (s.outcome === 'LOSS') { streak++; if (streak > maxConsecutiveLosses) maxConsecutiveLosses = streak; }
+    else streak = 0;
+  }
+
+  return {
+    total, wins, losses, breakeven, winRate, avgPnl,
+    totalPnl: Math.round(totalPnl * 100) / 100,
+    maxDrawdown: Math.round(maxDrawdown * 100) / 100,
+    maxConsecutiveLosses,
+    byPair, recent: recent.reverse(), waitTotal,
+  };
 }

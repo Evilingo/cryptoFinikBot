@@ -1,7 +1,12 @@
+import crypto from 'crypto';
 import { prisma } from '../../db/prisma.js';
 import { logger } from '../../config/logger.js';
 import { getSignalStats } from '../signals/tracker.js';
 import { safeDecrypt } from '../../config/crypto.js';
+
+function webhookSecret(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 async function sendBotMessage(token, chatId, text, replyMarkup = null) {
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -144,7 +149,7 @@ export async function setupTelegramWebhook(baseUrl) {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message', 'callback_query'] }),
+      body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message', 'callback_query'], secret_token: webhookSecret(token) }),
     });
     const data = await res.json();
     if (data.ok) {

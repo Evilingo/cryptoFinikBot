@@ -436,3 +436,65 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 **Приоритет:** LOW
 **Проблема:** При отключении сервера клиент пытается переподключиться каждые 3 секунды бесконечно. При долгом downtime — лавина запросов на сервер при его возвращении.
 **Исправление:** Exponential backoff: 3s → 6s → 12s → 30s (max).
+
+---
+
+## Раздел 7 — Full code review v2 (2026-04-19)
+
+Источник: полный аудит кодовой базы после TRADE-02..08 и SEC-03 фиксов.
+
+---
+
+### BUG-13 — Trade.slOrderFailed — мёртвое поле, никогда не true
+**Файл:** `backend/src/services/indicators/engine.js:261`, `backend/prisma/schema.prisma`
+**Приоритет:** HIGH
+**Проблема:** `slOrderFailed: false` записывается при создании Trade. При SL failure функция делает `return` до `trade.create` — Trade не создаётся вообще. Значит поле всегда `false`. При slFailed позиция существует на бирже, но в DB нет — `userDataStream` её никогда не закроет.
+**Исправление:** Либо удалить поле из схемы, либо изменить логику: создавать Trade запись даже при slFailed со статусом `'OPEN'` и `slOrderFailed: true` — чтобы `userDataStream` мог её отследить и закрыть.
+
+---
+
+### BUG-14 — aggTradeWs нет `stopped` флага — ghost-reconnect при смене биржи
+**Файлы:** `backend/src/services/binance/aggTradeWs.js`, `backend/src/services/bybit/aggTradeWs.js`
+**Приоритет:** HIGH
+**Проблема:** При `stopAggTradeWs()` убирается `reconnectTimer`, но если `ws.close()` вызывает `'close'` event до `removeAllListeners` — возникает реконнект. Остальные WS-сервисы используют `stopped = true`. При переключении биржи возможен ghost-reconnect старого aggTrade WS.
+**Исправление:** Добавить `stopped` флаг по аналогии с остальными WS-сервисами проекта.
+
+---
+
+### BUG-15 — Смена пар при переключении биржи не атомарна
+**Файл:** `backend/src/routes/settings.js:88-110`
+**Приоритет:** MEDIUM
+**Проблема:** `updateMany` + цикл upsert без транзакции. При краше посередине — часть пар активна для новой биржи, часть для старой. `switchExchangeWs` уже запущен, `activePairs` несогласован.
+**Исправление:** Обернуть в `prisma.$transaction([...])`.
+
+---
+
+### BUG-16 — runOptimize блокирует event loop на больших данных
+**Файл:** `backend/src/services/signals/tracker.js:288`
+**Приоритет:** MEDIUM
+**Проблема:** `runOptimize` выполняется синхронно. При 4 парах × 7 дней × 72 комбинации — 30-60s блокировки event loop. Нет timeout, нет streaming.
+**Исправление:** Разбить на чанки через `setImmediate` между итерациями или вынести в worker thread.
+
+---
+
+### BUG-17 — Binance userDataStream закрывает ручные сделки по symbol
+**Файл:** `backend/src/services/binance/userDataStream.js:33-35`
+**Приоритет:** MEDIUM
+**Проблема:** Поиск открытой сделки по `symbol` без привязки к `binanceOrderId`. Ручная LIMIT-сделка на том же символе может быть закрыта как auto-trade. Bybit `userDataStream.js` это исправляет, Binance — нет.
+**Исправление:** Добавить фильтр по `binanceOrderId` аналогично Bybit.
+
+---
+
+### BUG-18 — Signal таблица без индекса по createdAt — slow queries в Stats
+**Файл:** `backend/src/routes/stats.js:11-13`, `backend/prisma/schema.prisma`
+**Приоритет:** MEDIUM
+**Проблема:** `GET /stats` загружает все сигналы без date-filter. `Signal` не имеет индекса по `createdAt` — при >1000 сигналов полный seq scan.
+**Исправление:** Добавить `@@index([createdAt])` в модель `Signal`. Добавить `since` параметр в `/stats` эндпоинт.
+
+---
+
+### BUG-19 — useWebSocket не обновляет токен перед реконнектом
+**Файл:** `frontend/src/hooks/useWebSocket.jsx:14-16`
+**Приоритет:** HIGH
+**Проблема:** При реконнекте берётся `getAccessToken()` из модуля. Если WS закрылся из-за истёкшего токена — клиент реконнектится с тем же expired токеном. Нет явного refresh перед WS-реконнектом.
+**Исправление:** Перед реконнектом вызвать `refreshAccessToken()` или проверить expiry токена.

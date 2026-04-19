@@ -11,7 +11,7 @@ const TRADE_URL = process.env.BINANCE_TESTNET === 'true'
   : 'https://api.binance.com';
 
 if (process.env.BINANCE_TESTNET === 'true') {
-  console.log('[Binance] TESTNET mode active:', TRADE_URL);
+  logger.info('[Binance] TESTNET mode active', { url: TRADE_URL });
 }
 
 async function getKeys() {

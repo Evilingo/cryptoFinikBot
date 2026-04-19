@@ -6,6 +6,7 @@ import { logger } from '../config/logger.js';
 import { BINANCE_PAIRS, BYBIT_PAIRS } from '../config/pairs.js';
 import { invalidateExchangeCache } from '../services/exchange/index.js';
 import { switchExchangeWs } from '../services/exchange/wsManager.js';
+import { setupTelegramWebhook } from '../services/notifications/telegramBot.js';
 
 const router = Router();
 
@@ -123,6 +124,12 @@ router.put('/telegram', authMiddleware, async (req, res) => {
   if (chatId !== undefined) data.telegramChatId = chatId ? encrypt(chatId) : null;
   if (Object.keys(data).length > 0) {
     await prisma.settings.update({ where: { id: 1 }, data });
+  }
+  if (data.telegramToken !== undefined) {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    setupTelegramWebhook(baseUrl).catch((err) =>
+      logger.warn('Telegram webhook re-registration failed', { error: err.message })
+    );
   }
   res.json({ ok: true });
 });
