@@ -10,6 +10,7 @@ import { analyzeOfiSignal } from '../claude/orchestrator.js';
 import { getMidPrice } from '../exchange/index.js';
 import { executeAutoTrade } from './engine.js';
 import { runClaudePipeline } from '../signals/claudePipeline.js';
+import { broadcast } from '../../ws/hub.js';
 
 // Per-symbol sliding window
 const ofiState = new Map();
