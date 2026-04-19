@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { prisma } from '../db/prisma.js';
+import { logger } from '../config/logger.js';
 import {
   getAccountBalance,
   getOpenOrders,
@@ -88,12 +89,27 @@ router.post('/trades/:id/close', async (req, res) => {
   // Cancel SL/TP before market exit to avoid double-fill
   await cancelAllOpenOrders(trade.symbol).catch(() => {});
 
+  // Use real wallet balance — DB quantity may differ from actual after fees
+  const baseAsset = trade.symbol.replace(/USDT$|USDC$/, '');
+  let qty = trade.quantity;
+  try {
+    const coins = await getAccountBalance();
+    const coin = coins.find(c => c.asset === baseAsset);
+    const realQty = parseFloat(coin?.free || coin?.total || 0);
+    if (realQty > 0) {
+      qty = realQty;
+      logger.info('close trade: using real balance', { symbol: trade.symbol, dbQty: trade.quantity, realQty });
+    }
+  } catch (err) {
+    logger.warn('close trade: failed to fetch balance, using DB qty', { error: err.message });
+  }
+
   // Place market exit — userDataStream will close the Trade record on fill
   const result = await placeManualOrder({
     symbol: trade.symbol,
     side: exitSide,
     orderType: 'Market',
-    qty: trade.quantity,
+    qty,
   });
 
   res.json({ ok: true, orderId: result?.orderId });
