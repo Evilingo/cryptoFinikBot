@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Signals from './pages/Signals';
 import Settings from './pages/Settings';
 import Stats from './pages/Stats';
+import Trades from './pages/Trades';
 import Sidebar from './components/layout/Sidebar';
 import SignalModal from './components/SignalModal';
 import LiveSignalBanner from './components/LiveSignalBanner';
@@ -62,6 +63,7 @@ function AppLayout({ activeSignal, setActiveSignal, liveBanner, setLiveBanner })
           <Routes>
             <Route path="/" element={<Dashboard onOpenSignal={setActiveSignal} onNewSignal={setLiveBanner} />} />
             <Route path="/signals" element={<Signals onOpenSignal={setActiveSignal} />} />
+            <Route path="/trades" element={<Trades />} />
             <Route path="/stats" element={<Stats />} />
             <Route
               path="/settings"
@@ -80,6 +82,7 @@ function AppLayout({ activeSignal, setActiveSignal, liveBanner, setLiveBanner })
       <nav className="mobile-nav">
         <NavLink to="/" end className={({ isActive }) => isActive ? 'active' : ''}><Icon name="dashboard" size={20}/>Dashboard</NavLink>
         <NavLink to="/signals" className={({ isActive }) => isActive ? 'active' : ''}><Icon name="signal" size={20}/>Signals</NavLink>
+        <NavLink to="/trades" className={({ isActive }) => isActive ? 'active' : ''}><Icon name="grid" size={20}/>Trades</NavLink>
         <NavLink to="/stats" className={({ isActive }) => isActive ? 'active' : ''}><Icon name="stats" size={20}/>Stats</NavLink>
         {authenticated && <NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}><Icon name="settings" size={20}/>Settings</NavLink>}
       </nav>
