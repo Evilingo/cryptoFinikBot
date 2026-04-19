@@ -230,3 +230,143 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 **Файл:** `backend/src/services/indicators/ofiEngine.js:139-194` vs `backend/src/services/indicators/engine.js:122-205`
 **Проблема:** Обе функции выполняют идентичный flow: вызов Claude / skip, fetchEntryPrice, update signal в БД, broadcast SIGNAL_UPDATE, Telegram, executeAutoTrade. Разница только в вызове Claude и паре доп. полей в объекте broadcast.
 **Исправление:** Вынести общий flow в `backend/src/services/signals/claudePipeline.js` → `runClaudePipeline(signalId, pair, midPrice, getAnalysis)` где `getAnalysis` — функция-параметр.
+
+---
+
+## Раздел 4 — KISS-нарушения (аудит v2, 2026-04-19)
+
+Источник: KISS-агент (автоматический аудит всей кодовой базы).
+
+---
+
+### KISS-16 — 10 PUT-маршрутов в settings.js с одинаковым паттерном
+**Файл:** `backend/src/routes/settings.js:36-176`
+**Проблема:** 10 функций с идентичной структурой: валидация поля из req.body → prisma.settings.update → res.json({ok:true}). Изменение паттерна (логирование, rate limit, аудит) требует правки в 10 местах.
+**Исправление:** Фабрика `createSettingRoute(field, validator)` или единый PUT `/settings` с map валидаторов по ключу.
+
+---
+
+### KISS-17 — prisma.settings.findUnique({ where: { id: 1 } }) в 14+ файлах
+**Файлы:** `binance/rest.js`, `bybit/rest.js`, `bybit/userDataStream.js`, `exchange/index.js`, `ofiEngine.js`, `engine.js`, `notifier.js`, `telegramBot.js`, `prompts.js`, `server.js`, `routes/settings.js` и др.
+**Проблема:** Доступ к singleton Settings разбросан по всему коду без кеширования. При изменении схемы нужно менять в 14+ местах.
+**Исправление:** `getSettings()` в `db/prisma.js` с кешем и TTL — аналог уже существующего `getDipThreshold()` в engine.js.
+
+---
+
+### KISS-18 — Паттерн saveXxx в Settings.jsx повторяется 10+ раз
+**Файл:** `frontend/src/pages/Settings.jsx:77-193`
+**Проблема:** Каждая из 10 save-функций: `try { await api.put(...); showStatus(true, msg) } catch { showStatus(false, err) }`. Идентичная структура, только endpoint и поля разные.
+**Исправление:** `const apiSave = (endpoint, payload, msg) => api.put(endpoint, payload).then(...)` — переиспользовать вместо 10 копий.
+
+---
+
+### KISS-19 — showStatus (ok, msg) + setTimeout дублируется в 3 компонентах
+**Файлы:** `Dashboard.jsx:60-63`, `Settings.jsx:77-80`, `SignalModal.jsx:53-56`
+**Проблема:** Идентичная функция в трёх местах. При изменении таймаута (3000ms) нужно менять в трёх файлах.
+**Исправление:** `useStatusToast()` хук → `{ status, showStatus }`.
+
+---
+
+### KISS-20 — Сложные fallback-цепочки в SignalModal
+**Файл:** `frontend/src/components/SignalModal.jsx:24-31`
+**Проблема:** `signal.claudeAnalysis || signal.analysis || ''`, `signal.suggestedSl || signal.stopLoss || signal.sl` — признак нестабильного формата. KISS-06 нормализовал `/signals` роут, но SignalModal получает сигналы из WS (broadcast) и из модала открытого вручную — разные форматы.
+**Исправление:** Нормализовать WS SIGNAL_UPDATE broadcast в том же формате что и REST `/signals`. Тогда SignalModal получает один стабильный формат.
+
+---
+
+### KISS-21 — Дублированная логика кеширования Settings в engine.js и ofiEngine.js
+**Файлы:** `engine.js:25-33`, `ofiEngine.js:31-39`
+**Проблема:** `getDipThreshold()` и `isOfiEnabled()` — одинаковый паттерн: cachedValue + lastFetch + TTL + try/catch. Третья такая функция создаст антипаттерн.
+**Исправление:** `makeSettingCache(fieldName, defaultValue, ttl)` — фабрика кешированного геттера.
+
+---
+
+### KISS-22 — Дублированная валидация дат в stats.js
+**Файл:** `backend/src/routes/stats.js`
+**Проблема:** Блок `new Date(from/to)` + `isNaN` + `fromDate >= toDate` повторяется в `/backtest` и `/optimize`.
+**Исправление:** `validateDateRange(from, to)` → `{ ok, error, fromDate, toDate }`.
+
+---
+
+### KISS-23 — Паттерн showStatus в SignalModal идентичен Dashboard/Settings
+**Файл:** `frontend/src/components/SignalModal.jsx:53-56`
+**Проблема:** Третья копия `showStatus` + `setTimeout 3000`. См. KISS-19.
+**Исправление:** То же — `useStatusToast()` хук.
+
+---
+
+## Раздел 5 — Безопасность и архитектура (full code review, 2026-04-19)
+
+Источник: полный аудит кодовой базы (агент).
+
+---
+
+### SEC-01 — WebSocket не проверяет JWT токен
+**Файл:** `backend/src/ws/hub.js:8-39`
+**Приоритет:** CRITICAL
+**Проблема:** Токен принимается из URL (`/ws?token=...`) но JWT не верифицируется. Любой клиент (без авторизации) может подключиться и получать live SIGNAL, SIGNAL_UPDATE, SIGNAL_OUTCOME — реальные торговые сигналы с ценами SL/TP.
+**Исправление:** Добавить `jwt.verify(token, JWT_SECRET)` при upgrade, отклонять соединение при ошибке.
+
+---
+
+### SEC-02 — Публичные API без аутентификации
+**Файлы:** `routes/balance.js`, `routes/pairs.js`, `routes/signals.js`, `routes/stats.js`, `routes/klines.js`
+**Приоритет:** CRITICAL
+**Проблема:** Эндпоинты `/api/balance`, `/api/pairs`, `/api/signals`, `/api/stats*`, `/api/klines` не имеют `authMiddleware`. Любой пользователь может получить баланс аккаунта, историю сигналов, P&L статистику без логина.
+**Исправление:** Добавить `authMiddleware` на все эти роуты. `/api/klines` можно оставить публичным (это рыночные данные), остальные — закрыть.
+
+---
+
+### SEC-03 — Telegram token/chatId хранятся незашифрованными в БД
+**Файл:** `backend/src/services/notifications/notifier.js:18-37`
+**Приоритет:** HIGH
+**Проблема:** Bybit/Binance ключи шифруются AES-256-GCM перед записью в `Settings`. Telegram token и chat ID хранятся в открытом виде. При утечке БД — полный доступ к боту.
+**Исправление:** Шифровать через `encrypt()`/`decrypt()` из `config/crypto.js` аналогично API ключам.
+
+---
+
+### SEC-04 — Telegram webhook не верифицирует подпись Telegram
+**Файл:** `backend/src/routes/telegram.js:8-17`
+**Приоритет:** HIGH
+**Проблема:** `POST /telegram/webhook` принимает любой запрос. Злоумышленник может подделать webhook и вызвать команды бота.
+**Исправление:** Верифицировать запрос через `X-Telegram-Bot-Api-Secret-Token` или HMAC SHA-256 подпись тела по рекомендации Telegram.
+
+---
+
+### SEC-05 — Trade order: не валидируются SL/TP на экономический смысл
+**Файл:** `backend/src/routes/trade.js:10-48`
+**Приоритет:** MEDIUM
+**Проблема:** `POST /api/trade/order` принимает `stopLoss` и `takeProfit` без проверки: SL ≠ TP, SL < TP для LONG, SL > TP для SHORT. Можно разместить ордер с идентичными или перевёрнутыми уровнями.
+**Исправление:** Добавить валидацию перед `placeOrder()`. Вернуть 400 с понятным сообщением.
+
+---
+
+### ARCH-01 — Signal создаётся до Claude — возможен permanent "Analyzing..."
+**Файл:** `backend/src/services/indicators/ofiEngine.js:41-121`
+**Приоритет:** HIGH
+**Проблема:** OFI сигнал сохраняется в БД с пустым `claudeAnalysis`, затем Claude анализирует асинхронно. При падении бэкенда между созданием и Claude-ответом — сигнал навсегда остаётся без анализа (PENDING). OBD pipeline тоже создаёт Signal до Claude (`claudePipeline.js`).
+**Исправление:** Рассмотреть паттерн "создать Signal только после ответа Claude". Или добавить TTL-cleanup для сигналов без `claudeAnalysis` старше 5 минут.
+
+---
+
+### ARCH-02 — Таймаут Signal в tracker.js: принудительный исход некорректен
+**Файл:** `backend/src/services/signals/tracker.js:50-54`
+**Приоритет:** MEDIUM
+**Проблема:** Если за 1 час цена не достигла SL/TP — сигнал форсируется в WIN/LOSS/BREAKEVEN по текущей цене. Это создаёт ложные исходы в статистике. OBD-сигналы на mean-reversion — нормально. Но принцип "закрыть по таймауту по midPrice" может маскировать реальную неэффективность системы.
+**Исправление:** Добавить `outcome: 'TIMEOUT'` как отдельный статус. Или вынести таймаут как настраиваемый параметр в Settings.
+
+---
+
+### ARCH-03 — symbolInfoCache растёт неограниченно
+**Файлы:** `binance/rest.js:95-117`, `bybit/rest.js:213-244`
+**Приоритет:** LOW
+**Проблема:** `symbolInfoCache` — глобальная `Map` без LRU и без TTL. При большом количестве уникальных символов (в теории) — утечка памяти.
+**Исправление:** Максимальный размер 100 записей или TTL 24 часа (символы не меняются часто).
+
+---
+
+### ARCH-04 — WS авто-реконнект без exponential backoff
+**Файлы:** `frontend/src/hooks/useWebSocket.jsx:34-36`
+**Приоритет:** LOW
+**Проблема:** При отключении сервера клиент пытается переподключиться каждые 3 секунды бесконечно. При долгом downtime — лавина запросов на сервер при его возвращении.
+**Исправление:** Exponential backoff: 3s → 6s → 12s → 30s (max).
