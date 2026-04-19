@@ -435,7 +435,7 @@ export default function Portfolio() {
             <div style={{ color: 'var(--text-3)', fontSize: 13 }}>No bot trades</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 560 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
                 <thead>
                   <tr style={{ color: 'var(--text-3)', textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.06em' }}>
                     <th style={{ textAlign: 'left', padding: '6px 8px 6px 0', fontWeight: 600 }}>Symbol</th>
@@ -445,6 +445,7 @@ export default function Portfolio() {
                     <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>TP</th>
                     <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>Qty</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Status</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Protection</th>
                     <th style={{ textAlign: 'right', padding: '6px 0 6px 8px', fontWeight: 600 }}>PnL</th>
                     <th style={{ width: 80 }} />
                   </tr>
@@ -454,7 +455,23 @@ export default function Portfolio() {
                     const base = t.symbol?.replace(/USDT$|USDC$/, '') || t.symbol;
                     const isBuy = t.side === 'BUY';
                     const isOpen = t.status === 'OPEN';
+                    const needsProtection = t.status === 'OPEN' || t.status === 'CLOSING';
                     const pnlColor = t.pnl > 0.1 ? 'var(--long)' : t.pnl < -0.1 ? 'var(--short)' : 'var(--text-3)';
+
+                    const sellOrders = openOrders.filter(o =>
+                      o.symbol === t.symbol && (o.side === 'Sell' || o.side === 'SELL')
+                    );
+                    const hasSlOrder = sellOrders.some(o =>
+                      o.stopOrderType === 'StopLoss' ||
+                      o.stopOrderType === 'Stop' ||
+                      (o.orderType === 'Market' && o.triggerPrice > 0) ||
+                      (o.triggerPrice > 0 && o.price === 0)
+                    );
+                    const hasTpOrder = sellOrders.some(o =>
+                      o.stopOrderType === 'TakeProfit' ||
+                      (o.orderType === 'Limit' && o.triggerPrice === 0)
+                    );
+
                     return (
                       <tr key={t.id} style={{ borderTop: '1px solid var(--line)', opacity: isOpen ? 1 : 0.7 }}>
                         <td style={{ padding: '10px 8px 10px 0' }}>
@@ -484,6 +501,23 @@ export default function Portfolio() {
                           <span className={`badge ${t.status === 'OPEN' ? 'badge-pending' : t.status === 'CLOSING' ? 'badge-warn' : 'badge-win'}`}>
                             {t.status}
                           </span>
+                        </td>
+                        <td style={{ padding: '10px 8px' }}>
+                          {needsProtection ? (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {sellOrders.length === 0 ? (
+                                <span className="badge badge-loss" title="No sell orders on exchange">⚠ No orders</span>
+                              ) : (
+                                <>
+                                  {hasSlOrder && <span className="badge badge-pending" title="Stop-Loss order active">SL ✓</span>}
+                                  {hasTpOrder && <span className="badge badge-win" title="Take-Profit order active">TP ✓</span>}
+                                  {!hasSlOrder && !hasTpOrder && sellOrders.map((o, i) => (
+                                    <span key={i} className="badge badge-warn">{o.stopOrderType || o.orderType}</span>
+                                  ))}
+                                </>
+                              )}
+                            </div>
+                          ) : null}
                         </td>
                         <td style={{ padding: '10px 0 10px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: pnlColor, fontWeight: isOpen ? 400 : 600 }}>
                           {t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}${t.pnl}%` : '—'}
