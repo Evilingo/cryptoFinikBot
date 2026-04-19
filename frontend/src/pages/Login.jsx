@@ -6,6 +6,7 @@ import { Logo } from '../components/primitives';
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -18,7 +19,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(username, password);
+      await login(username, password, remember);
       navigate(from);
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
@@ -92,7 +93,7 @@ export default function Login() {
           </div>
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, fontSize: 12}}>
             <label style={{display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)'}}>
-              <input type="checkbox" defaultChecked/> Remember me
+              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)}/> Remember me
             </label>
           </div>
           <button

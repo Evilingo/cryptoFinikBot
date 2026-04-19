@@ -1,14 +1,38 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { tradeLimiter } from '../middleware/rateLimit.js';
-import { placeOrder } from '../services/exchange/index.js';
+import { placeOrder, getMidPrice } from '../services/exchange/index.js';
 import { prisma } from '../db/prisma.js';
 import { logger } from '../config/logger.js';
 
 const router = Router();
 
+function validateSlTp(side, entryPrice, stopLoss, takeProfit) {
+  if (stopLoss !== undefined && (typeof stopLoss !== 'number' || !isFinite(stopLoss)))
+    return 'stopLoss must be a finite number';
+  if (takeProfit !== undefined && (typeof takeProfit !== 'number' || !isFinite(takeProfit)))
+    return 'takeProfit must be a finite number';
+  if (stopLoss !== undefined && stopLoss <= 0) return 'stopLoss must be positive';
+  if (takeProfit !== undefined && takeProfit <= 0) return 'takeProfit must be positive';
+  if (stopLoss !== undefined && takeProfit !== undefined && stopLoss === takeProfit)
+    return 'stopLoss and takeProfit cannot be equal';
+  if (side === 'BUY') {
+    if (stopLoss !== undefined && stopLoss >= entryPrice)
+      return 'stopLoss must be below entry price for BUY';
+    if (takeProfit !== undefined && takeProfit <= entryPrice)
+      return 'takeProfit must be above entry price for BUY';
+  }
+  if (side === 'SELL') {
+    if (stopLoss !== undefined && stopLoss <= entryPrice)
+      return 'stopLoss must be above entry price for SELL';
+    if (takeProfit !== undefined && takeProfit >= entryPrice)
+      return 'takeProfit must be below entry price for SELL';
+  }
+  return null;
+}
+
 router.post('/order', authMiddleware, tradeLimiter, async (req, res) => {
-  const { symbol, side, quantity, stopLoss, takeProfit } = req.body;
+  const { symbol, side, quantity, entryPrice: bodyEntryPrice, stopLoss, takeProfit } = req.body;
 
   if (!symbol || !side || !quantity) {
     return res.status(400).json({ error: 'symbol, side, and quantity are required' });
@@ -18,11 +42,20 @@ router.post('/order', authMiddleware, tradeLimiter, async (req, res) => {
     return res.status(400).json({ error: 'side must be BUY or SELL' });
   }
 
-  if (typeof quantity !== 'number' || quantity <= 0) {
+  if (typeof quantity !== 'number' || !isFinite(quantity) || quantity <= 0) {
     return res.status(400).json({ error: 'quantity must be a positive number' });
   }
 
   try {
+    if (stopLoss !== undefined || takeProfit !== undefined) {
+      if (bodyEntryPrice !== undefined && (typeof bodyEntryPrice !== 'number' || bodyEntryPrice <= 0)) {
+        return res.status(400).json({ error: 'entryPrice must be a positive number' });
+      }
+      const entryPrice = bodyEntryPrice ?? await getMidPrice(symbol);
+      const validationError = validateSlTp(side, entryPrice, stopLoss, takeProfit);
+      if (validationError) return res.status(400).json({ error: validationError });
+    }
+
     const result = await placeOrder({ symbol, side, quantity, stopLoss, takeProfit });
 
     await prisma.trade.create({
@@ -31,8 +64,8 @@ router.post('/order', authMiddleware, tradeLimiter, async (req, res) => {
         side,
         quantity,
         price: result.price,
-        stopLoss: stopLoss || null,
-        takeProfit: takeProfit || null,
+        stopLoss: stopLoss ?? null,
+        takeProfit: takeProfit ?? null,
         binanceOrderId: result.orderId,
         status: 'OPEN',
       },

@@ -99,9 +99,11 @@ export function DirectionBadge({ dir }) {
 
 export function OutcomeBadge({ outcome, direction }) {
   if (!outcome) {
-    if (direction === 'WAIT') return <span className="badge badge-wait">NO TRADE</span>;
-    return <span className="badge badge-pending">OPEN</span>;
+    if (direction === 'WAIT') return <span className="badge badge-wait">SKIPPED</span>;
+    return <span className="badge badge-pending">TRACKING</span>;
   }
+  if (outcome === 'WAIT' || outcome === 'EXPIRED') return <span className="badge badge-wait">SKIPPED</span>;
+  if (outcome === 'TIMEOUT') return <span className="badge badge-pending">TIMEOUT</span>;
   const map = { WIN: 'badge-win', LOSS: 'badge-loss', BREAKEVEN: 'badge-warn' };
   return <span className={`badge ${map[outcome] || 'badge-pending'}`}>{outcome}</span>;
 }

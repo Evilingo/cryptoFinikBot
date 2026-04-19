@@ -20,8 +20,8 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (username, password) => {
-    const { data } = await api.post('/auth/login', { username, password });
+  const login = useCallback(async (username, password, remember = true) => {
+    const { data } = await api.post('/auth/login', { username, password, remember });
     setAccessToken(data.accessToken);
     setAuthenticated(true);
   }, []);

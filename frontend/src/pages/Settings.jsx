@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Toggle, Icon } from '../components/primitives';
+import { useStatusToast } from '../hooks/useStatusToast';
 
 function SettingRow({ label, description, children }) {
   return (
@@ -31,6 +32,88 @@ function formatBybitTestResult(data) {
   return { ok: perms?.canTrade ? true : null, msg: `${balLine}${permLine}` };
 }
 
+function AccountSection({ showStatus }) {
+  const [profileUsername, setProfileUsername] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [showPwForm, setShowPwForm] = useState(false);
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+
+  useEffect(() => {
+    api.get('/auth/profile').then(({ data }) => {
+      setProfileUsername(data.username || '');
+      setProfileEmail(data.email || '');
+    }).catch(() => showStatus(false, 'Failed to load profile'));
+  }, []);
+
+  const saveProfile = async () => {
+    try {
+      await api.put('/auth/profile', { username: profileUsername, email: profileEmail });
+      showStatus(true, 'Account saved');
+    } catch (err) {
+      showStatus(false, err.response?.data?.error || 'Save failed');
+    }
+  };
+
+  const savePwd = async () => {
+    if (!newPwd) {
+      showStatus(false, 'New password is required');
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      showStatus(false, 'New passwords do not match');
+      return;
+    }
+    try {
+      await api.put('/auth/change-password', { currentPassword: currentPwd, newPassword: newPwd });
+      showStatus(true, 'Password changed');
+      setShowPwForm(false);
+      setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
+    } catch (err) {
+      showStatus(false, err.response?.data?.error || 'Change failed');
+    }
+  };
+
+  return (
+    <div className="settings-section">
+      <h3>Account</h3>
+      <p className="subtitle">User data and security</p>
+      <div className="field" style={{marginBottom: 12}}>
+        <label className="label">Username</label>
+        <input className="input" value={profileUsername} onChange={e => setProfileUsername(e.target.value)}/>
+      </div>
+      <div className="field" style={{marginBottom: 12}}>
+        <label className="label">Email</label>
+        <input className="input" value={profileEmail} onChange={e => setProfileEmail(e.target.value)}/>
+      </div>
+      <div style={{display: 'flex', gap: 8, marginBottom: 16}}>
+        <button className="btn btn-primary" onClick={saveProfile}>Save account</button>
+        <button className="btn btn-ghost" onClick={() => setShowPwForm(!showPwForm)}>
+          Change password
+        </button>
+      </div>
+      {showPwForm && (
+        <div style={{paddingTop: 16, borderTop: '1px solid var(--line)'}}>
+          <div className="field" style={{marginBottom: 12}}>
+            <label className="label">Current password</label>
+            <input className="input" type="password" value={currentPwd} onChange={e => setCurrentPwd(e.target.value)}/>
+          </div>
+          <div className="field" style={{marginBottom: 12}}>
+            <label className="label">New password</label>
+            <input className="input" type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)}/>
+          </div>
+          <div className="field" style={{marginBottom: 16}}>
+            <label className="label">Confirm new password</label>
+            <input className="input" type="password" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)}/>
+          </div>
+          <button className="btn btn-primary" onClick={savePwd}>Save password</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const [section, setSection] = useState('trading');
   const [settings, setSettings] = useState(null);
@@ -53,8 +136,10 @@ export default function Settings() {
   const [enableShort, setEnableShort] = useState(true);
   const [ofiEnabled, setOfiEnabled] = useState(false);
   const [balanceResult, setBalanceResult] = useState(null);
-  const [saveStatus, setSaveStatus] = useState(null);
+  const { status: saveStatus, showStatus } = useStatusToast();
   const [bybitStatus, setBybitStatus] = useState(null); // inline status for Bybit section
+  const [testResult, setTestResult] = useState(null);
+  const [testLoading, setTestLoading] = useState(false);
 
   useEffect(() => {
     api.get('/settings').then(({ data }) => {
@@ -74,38 +159,19 @@ export default function Settings() {
     }).catch(() => {});
   }, []);
 
-  const showStatus = (ok, msg) => {
-    setSaveStatus({ ok, msg });
-    setTimeout(() => setSaveStatus(null), 3000);
-  };
+  const apiSave = (endpoint, payload, msg = 'Saved') =>
+    api.put(endpoint, payload)
+      .then(() => showStatus(true, msg))
+      .catch(err => showStatus(false, err.response?.data?.error || 'Save failed'));
 
-  const savePrompt = async () => {
-    try {
-      await api.put('/settings/prompt', { prompt });
-      showStatus(true, 'OBD prompt saved');
-    } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
-    }
-  };
+  const savePrompt = () => apiSave('/settings/prompt', { prompt }, 'OBD prompt saved');
 
-  const saveOfiPrompt = async () => {
-    try {
-      await api.put('/settings/ofi-prompt', { prompt: ofiPrompt });
-      showStatus(true, 'OFI prompt saved');
-    } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
-    }
-  };
+  const saveOfiPrompt = () => apiSave('/settings/ofi-prompt', { prompt: ofiPrompt }, 'OFI prompt saved');
 
-  const saveKeys = async () => {
+  const saveKeys = () => {
     if (!apiKey || !secret) return showStatus(false, 'Both API Key and Secret required');
-    try {
-      await api.put('/settings/keys', { apiKey, secret });
-      showStatus(true, 'Binance keys saved');
-      setApiKey(''); setSecret('');
-    } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
-    }
+    apiSave('/settings/keys', { apiKey, secret }, 'Binance keys saved')
+      .then(() => { setApiKey(''); setSecret(''); });
   };
 
   const saveBybitKeys = async () => {
@@ -133,64 +199,24 @@ export default function Settings() {
     }
   };
 
-  const saveExchange = async (value) => {
-    try {
-      await api.put('/settings/exchange', { exchange: value });
-      setExchange(value);
-      showStatus(true, `Exchange switched to ${value}`);
-    } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
-    }
-  };
+  const saveExchange = (value) =>
+    apiSave('/settings/exchange', { exchange: value }, `Exchange switched to ${value}`)
+      .then(() => setExchange(value));
 
-  const saveTelegram = async () => {
-    try {
-      await api.put('/settings/telegram', {
-        token: tgToken === '****' ? undefined : (tgToken || null),
-        chatId: tgChatId === '****' ? undefined : (tgChatId || null),
-      });
-      showStatus(true, 'Telegram settings saved');
-    } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
-    }
-  };
+  const saveTelegram = () => apiSave('/settings/telegram', {
+    token: tgToken === '****' ? undefined : (tgToken || null),
+    chatId: tgChatId === '****' ? undefined : (tgChatId || null),
+  }, 'Telegram settings saved');
 
-  const saveThreshold = async () => {
-    try {
-      await api.put('/settings/threshold', { dipThreshold: Number(threshold) });
-      showStatus(true, 'Threshold saved');
-    } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
-    }
-  };
+  const saveThreshold = () => apiSave('/settings/threshold', { dipThreshold: Number(threshold) }, 'Threshold saved');
 
-  const saveAutoTrade = async () => {
-    try {
-      await api.put('/settings/autotrade', { autoTrade, autoTradeAmount: Number(autoTradeAmount), maxOpenTrades: Number(maxOpenTrades), allowShort: enableShort });
-      showStatus(true, 'Auto-trade settings saved');
-    } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
-    }
-  };
+  const saveAutoTrade = () => apiSave('/settings/autotrade', { autoTrade, autoTradeAmount: Number(autoTradeAmount), maxOpenTrades: Number(maxOpenTrades), allowShort: enableShort }, 'Auto-trade settings saved');
 
-  const saveOfi = async (value) => {
-    try {
-      await api.put('/settings/ofi', { ofiEnabled: value });
-      setOfiEnabled(value);
-      showStatus(true, `OFI strategy ${value ? 'enabled' : 'disabled'}`);
-    } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
-    }
-  };
+  const saveOfi = (value) =>
+    apiSave('/settings/ofi', { ofiEnabled: value }, `OFI strategy ${value ? 'enabled' : 'disabled'}`)
+      .then(() => setOfiEnabled(value));
 
-  const saveConfidence = async () => {
-    try {
-      await api.put('/settings/confidence', { minConfidence: Number(minConfidence) });
-      showStatus(true, 'Min confidence saved');
-    } catch (err) {
-      showStatus(false, err.response?.data?.error || 'Save failed');
-    }
-  };
+  const saveConfidence = () => apiSave('/settings/confidence', { minConfidence: Number(minConfidence) }, 'Min confidence saved');
 
   const testConnection = async () => {
     setBalanceResult(null);
@@ -327,7 +353,15 @@ export default function Settings() {
                   <span className="badge badge-pending">Live</span>
                 </div>
                 <p className="subtitle">Stops all auto-trades and disconnects from Binance</p>
-                <button className="btn btn-short" style={{marginTop: 8}}>Stop all trading</button>
+                <button className="btn btn-short" style={{marginTop: 8}} onClick={async () => {
+                  try {
+                    await api.put('/settings/autotrade', { autoTrade: false, autoTradeAmount: Number(autoTradeAmount), maxOpenTrades: Number(maxOpenTrades), allowShort: enableShort });
+                    setAutoTrade(false);
+                    showStatus(true, 'Auto-trading stopped');
+                  } catch (err) {
+                    showStatus(false, err.response?.data?.error || 'Stop failed');
+                  }
+                }}>Stop all trading</button>
               </div>
             </>
           )}
@@ -417,9 +451,36 @@ export default function Settings() {
                   value={prompt}
                   onChange={e => setPrompt(e.target.value)}
                 />
-                <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)'}}>
+                <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)'}}>
+                  <button className="btn btn-ghost" disabled={testLoading} onClick={async () => {
+                    setTestLoading(true);
+                    setTestResult(null);
+                    try {
+                      const { data } = await api.post('/settings/test-prompt');
+                      setTestResult(data);
+                    } catch (err) {
+                      setTestResult({ ok: false, error: err.response?.data?.error || err.message });
+                    }
+                    setTestLoading(false);
+                  }}>{testLoading ? 'Testing…' : 'Test prompt'}</button>
                   <button className="btn btn-primary" onClick={savePrompt}>Save OBD prompt</button>
                 </div>
+                {testResult && (
+                  <div style={{marginTop: 12, padding: 12, borderRadius: 'var(--radius)', background: 'var(--bg-2)', border: '1px solid var(--line)'}}>
+                    {testResult.ok ? (
+                      <>
+                        {testResult.direction && (
+                          <div style={{marginBottom: 6, fontSize: 13, fontWeight: 600, color: testResult.direction === 'LONG' ? 'var(--long)' : testResult.direction === 'SHORT' ? 'var(--short)' : 'var(--text-2)'}}>
+                            {testResult.direction}{testResult.confidence != null ? ` · confidence ${testResult.confidence}` : ''}
+                          </div>
+                        )}
+                        <pre style={{margin: 0, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text-2)', fontFamily: 'var(--font-mono)'}}>{testResult.response}</pre>
+                      </>
+                    ) : (
+                      <div style={{fontSize: 13, color: 'var(--short)'}}>{testResult.error}</div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="settings-section">
@@ -452,7 +513,14 @@ export default function Settings() {
                 <input className="input mono" value={tgChatId} onChange={e => setTgChatId(e.target.value)} placeholder="Chat ID"/>
               </div>
               <div style={{display: 'flex', gap: 8}}>
-                <button className="btn btn-ghost" onClick={() => {}}><Icon name="telegram" size={14}/>Send test</button>
+                <button className="btn btn-ghost" onClick={async () => {
+                  try {
+                    await api.post('/telegram/test');
+                    showStatus(true, 'Test sent');
+                  } catch (err) {
+                    showStatus(false, err.response?.data?.error || 'Send failed');
+                  }
+                }}><Icon name="telegram" size={14}/>Send test</button>
                 <button className="btn btn-primary" onClick={saveTelegram}>Save Telegram</button>
               </div>
             </div>
@@ -460,19 +528,7 @@ export default function Settings() {
 
           {/* ===== Account ===== */}
           {section === 'account' && (
-            <div className="settings-section">
-              <h3>Account</h3>
-              <p className="subtitle">User data and security</p>
-              <div className="field" style={{marginBottom: 12}}>
-                <label className="label">Username</label>
-                <input className="input" defaultValue={settings.username || 'admin'}/>
-              </div>
-              <div className="field" style={{marginBottom: 12}}>
-                <label className="label">Email</label>
-                <input className="input" defaultValue={settings.email || ''}/>
-              </div>
-              <button className="btn btn-ghost">Change password</button>
-            </div>
+            <AccountSection showStatus={showStatus} />
           )}
         </div>
       </div>

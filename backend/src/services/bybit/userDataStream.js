@@ -59,8 +59,8 @@ async function handleOrderFill(order) {
   );
   const isExitOrder = isInlineTpSl || isOpposingSide;
 
-  if (!openTrade && isExitOrder) {
-    logger.warn(`[UserDataStream] Exit fill received for ${symbol} but no OPEN trade found in DB. orderId=${orderId}`);
+  if (!openTrade && side === 'Sell') {
+    logger.warn({ symbol, orderId }, 'exit fill received but no OPEN trade found in DB — possible manual close or race condition');
   }
 
   if (!isExitOrder) {
@@ -87,15 +87,29 @@ async function handleOrderFill(order) {
 
   const exitPrice = filledPrice;
 
-  const trade = await prisma.trade.findFirst({
-    where: { symbol, status: 'OPEN' },
-    orderBy: { createdAt: 'asc' },
-  });
+  // Try exact match by orderLinkId first (tp-{suffix} / sl-{suffix} → entry orderId suffix)
+  let trade = null;
+  if (orderLinkId && (orderLinkId.startsWith('tp-') || orderLinkId.startsWith('sl-'))) {
+    const entrySuffix = orderLinkId.slice(3); // strip 'tp-' or 'sl-'
+    trade = await prisma.trade.findFirst({
+      where: { status: 'OPEN', binanceOrderId: { endsWith: entrySuffix } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  // Fallback: match by symbol (safe when only one position per symbol)
+  if (!trade) {
+    trade = await prisma.trade.findFirst({
+      where: { symbol, status: 'OPEN' },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   if (!trade) return;
 
-  const pnl = trade.side === 'BUY'
-    ? ((exitPrice - trade.price) / trade.price) * 100
-    : ((trade.price - exitPrice) / trade.price) * 100;
+  const pnl = (trade.side === 'BUY'
+    ? ((exitPrice - trade.price) / trade.price)
+    : ((trade.price - exitPrice) / trade.price)) * 100 - 0.2;
   const roundedPnl = Math.round(pnl * 100) / 100;
   const outcome = roundedPnl > 0.1 ? 'WIN' : roundedPnl < -0.1 ? 'LOSS' : 'BREAKEVEN';
 

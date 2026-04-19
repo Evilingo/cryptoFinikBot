@@ -211,11 +211,15 @@ function getIntervalMs(bybitInterval) {
   return map[bybitInterval] || 60000;
 }
 
-// Cache symbol precision info
-const symbolInfoCache = new Map();
+// Cache symbol precision info — TTL 24h
+const symbolInfoCache = new Map(); // { symbol: { data, fetchedAt } }
+const SYMBOL_CACHE_TTL = 24 * 60 * 60 * 1000;
 
 async function getSymbolInfo(symbol) {
-  if (symbolInfoCache.has(symbol)) return symbolInfoCache.get(symbol);
+  const cached = symbolInfoCache.get(symbol);
+  if (cached && Date.now() - cached.fetchedAt < SYMBOL_CACHE_TTL) {
+    return cached.data;
+  }
 
   const url = `${BASE_URL}/v5/market/instruments-info?category=spot&symbol=${symbol}`;
   const res = await fetch(url);
@@ -234,7 +238,7 @@ async function getSymbolInfo(symbol) {
     qtyPrecision: countDecimals(basePrecision),
   };
 
-  symbolInfoCache.set(symbol, result);
+  symbolInfoCache.set(symbol, { data: result, fetchedAt: Date.now() });
   return result;
 }
 
@@ -248,62 +252,52 @@ function formatNum(value, precision) {
   return parseFloat(value).toFixed(precision);
 }
 
-// Returns true if SL placement failed (position is unprotected — caller must close immediately).
+// Returns true if SL placement failed (position is unprotected — caller must handle).
 async function placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, entryOrderId, info) {
   const idPrefix = String(entryOrderId).slice(-28);
   const triggerDirection = exitSide === 'Sell' ? 2 : 1; // Sell SL: falls to; Buy SL: rises to
 
-  const promises = [];
-  if (takeProfit) {
-    promises.push(
-      privatePost('/v5/order/create', {
-        category: 'spot', symbol, side: exitSide,
-        orderType: 'Limit', qty: qtyStr,
-        price: formatNum(takeProfit, info.pricePrecision),
-        timeInForce: 'GTC',
-        orderLinkId: `tp-${idPrefix}`,
-      }).then(r => logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit }))
-        .catch(err => {
-          logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit });
-          sendTelegramNotification(
-            `⚠️ TP order FAILED for ${symbol} — position open without take-profit\nTP: ${takeProfit}\nError: ${err.message}`,
-            null,
-          ).catch((tgErr) => {
-            logger.warn(`TP FAILED for ${symbol} and Telegram unavailable`, { takeProfit, error: err.message, tgError: tgErr.message });
-          });
-        })
-    );
-  }
-
-  let slPromise = null;
+  // SL — awaited, critical: position without stop-loss is unacceptable
   if (stopLoss) {
-    slPromise = privatePost('/v5/order/create', {
-      category: 'spot', symbol, side: exitSide,
-      orderType: 'Market', qty: qtyStr,
-      triggerPrice: formatNum(stopLoss, info.pricePrecision),
-      triggerBy: 'LastPrice', triggerDirection,
-      orderFilter: 'StopOrder',
-      orderLinkId: `sl-${idPrefix}`,
-    }).then(r => logger.info('SL stop order placed', { symbol, orderId: r.result?.orderId, sl: stopLoss }));
-    promises.push(slPromise);
-  }
-
-  await Promise.allSettled(promises.filter(Boolean));
-
-  if (stopLoss && slPromise) {
     try {
-      await slPromise;
+      const r = await privatePost('/v5/order/create', {
+        category: 'spot', symbol, side: exitSide,
+        orderType: 'Market', qty: qtyStr,
+        triggerPrice: formatNum(stopLoss, info.pricePrecision),
+        triggerBy: 'LastPrice', triggerDirection,
+        orderFilter: 'StopOrder',
+        orderLinkId: `sl-${idPrefix}`,
+      });
+      logger.info('SL stop order placed', { symbol, orderId: r.result?.orderId, sl: stopLoss });
     } catch (err) {
       const errMsg = err?.message || 'unknown error';
-      logger.error('SL stop order FAILED — closing position immediately', { symbol, stopLoss, error: errMsg });
+      logger.error('SL stop order FAILED — position is unprotected', { symbol, stopLoss, error: errMsg });
       sendTelegramNotification(
-        `🚨 SL order FAILED for ${symbol} — closing position now\nSL: ${stopLoss}\nError: ${errMsg}`,
+        `🚨 SL order FAILED for ${symbol} — position open without stop-loss\nSL: ${stopLoss}\nError: ${errMsg}`,
         null,
       ).catch(() => {
         logger.error(`SL FAILED for ${symbol} and Telegram unavailable`, { stopLoss, error: errMsg });
       });
       return true; // slFailed
     }
+  }
+
+  // TP — fire-and-forget, not critical: position has SL protection, missing TP is acceptable
+  if (takeProfit) {
+    privatePost('/v5/order/create', {
+      category: 'spot', symbol, side: exitSide,
+      orderType: 'Limit', qty: qtyStr,
+      price: formatNum(takeProfit, info.pricePrecision),
+      timeInForce: 'GTC',
+      orderLinkId: `tp-${idPrefix}`,
+    }).then(r => logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit }))
+      .catch(err => {
+        logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit });
+        sendTelegramNotification(
+          `⚠️ TP order FAILED for ${symbol} — position open without take-profit\nTP: ${takeProfit}\nError: ${err.message}`,
+          null,
+        ).catch(() => {});
+      });
   }
 
   return false; // all ok
@@ -399,6 +393,10 @@ export async function queryApiPermissions() {
     readOnly: data.result?.readOnly === 1,
     ips: data.result?.ips || [],
   };
+}
+
+export async function getOrderHistory(symbol, limit = 50) {
+  return privateGet('/v5/order/history', { category: 'spot', symbol, limit });
 }
 
 // Stubs — Bybit uses WS auth (not listenKey)

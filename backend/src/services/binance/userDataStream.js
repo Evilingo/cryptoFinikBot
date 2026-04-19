@@ -21,23 +21,46 @@ let reconnectTimer = null;
 let stopped = false;
 
 async function handleExecutionReport(report) {
-  // Only process filled exit orders (TP = LIMIT, SL = STOP_LOSS_LIMIT)
   if (report.X !== 'FILLED') return;
-  if (!['LIMIT', 'STOP_LOSS_LIMIT'].includes(report.o)) return;
+  if (!['LIMIT', 'STOP_LOSS_LIMIT', 'MARKET'].includes(report.o)) return;
 
   const symbol = report.s;
-  const exitPrice = parseFloat(report.L); // last executed price
+  const filledPrice = parseFloat(report.L); // last executed price
+  const filledSide = report.S; // 'BUY' or 'SELL'
+
+  const openTrade = await prisma.trade.findFirst({
+    where: { symbol, status: 'OPEN' },
+  });
+
+  // Exit = opposing side of open trade
+  const isExitOrder = openTrade && (
+    (filledSide === 'SELL' && openTrade.side === 'BUY') ||
+    (filledSide === 'BUY' && openTrade.side === 'SELL')
+  );
+
+  if (!isExitOrder) {
+    // Entry MARKET fill — update price if Trade exists with price=0
+    if (!openTrade && ['LIMIT', 'STOP_LOSS_LIMIT'].includes(report.o)) {
+      logger.warn(`[UserDataStream] LIMIT/SL_LIMIT fill for ${symbol} but no OPEN trade in DB — likely manual order, ignoring. orderId=${report.i}`);
+    }
+    const entryTrade = await prisma.trade.findFirst({
+      where: { binanceOrderId: String(report.i), status: 'OPEN' },
+    });
+    if (entryTrade && filledPrice > 0 && entryTrade.price === 0) {
+      await prisma.trade.update({ where: { id: entryTrade.id }, data: { price: filledPrice } });
+      logger.info('Binance entry fill confirmed, updated trade price', { symbol, orderId: report.i, filledPrice });
+    }
+    return;
+  }
+
+  const trade = openTrade;
+  const exitPrice = filledPrice;
 
   logger.info('User Data Stream: exit order filled', { symbol, orderType: report.o, exitPrice });
 
-  const trade = await prisma.trade.findFirst({
-    where: { symbol, status: 'OPEN' },
-  });
-  if (!trade) return;
-
-  const pnl = trade.side === 'BUY'
-    ? ((exitPrice - trade.price) / trade.price) * 100
-    : ((trade.price - exitPrice) / trade.price) * 100;
+  const pnl = (trade.side === 'BUY'
+    ? ((exitPrice - trade.price) / trade.price)
+    : ((trade.price - exitPrice) / trade.price)) * 100 - 0.2;
   const roundedPnl = Math.round(pnl * 100) / 100;
   const outcome = roundedPnl > 0.1 ? 'WIN' : roundedPnl < -0.1 ? 'LOSS' : 'BREAKEVEN';
 

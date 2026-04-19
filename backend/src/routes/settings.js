@@ -1,14 +1,28 @@
 import { Router } from 'express';
+import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '../db/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { encrypt } from '../config/crypto.js';
 import { logger } from '../config/logger.js';
+import { env } from '../config/env.js';
 import { BINANCE_PAIRS, BYBIT_PAIRS } from '../config/pairs.js';
 import { invalidateExchangeCache } from '../services/exchange/index.js';
+import { invalidateSettingsCache } from '../db/settingsCache.js';
 import { switchExchangeWs } from '../services/exchange/wsManager.js';
 import { setupTelegramWebhook } from '../services/notifications/telegramBot.js';
 
 const router = Router();
+
+function simpleSetting(field, validator) {
+  return [authMiddleware, async (req, res) => {
+    const value = req.body[field];
+    const error = validator?.(value);
+    if (error) return res.status(400).json({ error });
+    await prisma.settings.update({ where: { id: 1 }, data: { [field]: value } });
+    invalidateSettingsCache();
+    res.json({ ok: true });
+  }];
+}
 
 router.get('/', authMiddleware, async (req, res) => {
   const s = await prisma.settings.findUnique({ where: { id: 1 } });
@@ -80,34 +94,36 @@ router.put('/exchange', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'exchange must be "binance" or "bybit"' });
   }
 
-  await prisma.settings.update({ where: { id: 1 }, data: { exchange } });
-
   // Invalidate exchange adapter cache (REST calls)
   invalidateExchangeCache();
 
   // Swap active trading pairs
   const targetPairs = exchange === 'bybit' ? BYBIT_PAIRS : BINANCE_PAIRS;
 
-  await prisma.tradingPair.updateMany({
-    where: { isActive: true },
-    data: { isActive: false },
-  });
+  await prisma.$transaction(async (tx) => {
+    await tx.settings.update({ where: { id: 1 }, data: { exchange } });
 
-  for (const p of targetPairs) {
-    const existing = await prisma.tradingPair.findFirst({
-      where: { monitorSymbol: p.monitor },
+    await tx.tradingPair.updateMany({
+      where: { isActive: true },
+      data: { isActive: false },
     });
-    if (existing) {
-      await prisma.tradingPair.update({
-        where: { id: existing.id },
-        data: { isActive: true, tradeSymbol: p.trade },
+
+    for (const p of targetPairs) {
+      const existing = await tx.tradingPair.findFirst({
+        where: { monitorSymbol: p.monitor },
       });
-    } else {
-      await prisma.tradingPair.create({
-        data: { monitorSymbol: p.monitor, tradeSymbol: p.trade, isActive: true },
-      });
+      if (existing) {
+        await tx.tradingPair.update({
+          where: { id: existing.id },
+          data: { isActive: true, tradeSymbol: p.trade },
+        });
+      } else {
+        await tx.tradingPair.create({
+          data: { monitorSymbol: p.monitor, tradeSymbol: p.trade, isActive: true },
+        });
+      }
     }
-  }
+  });
 
   // Hot-switch WebSocket services (non-blocking — runs in background)
   switchExchangeWs(exchange).catch((err) =>
@@ -134,14 +150,9 @@ router.put('/telegram', authMiddleware, async (req, res) => {
   res.json({ ok: true });
 });
 
-router.put('/confidence', authMiddleware, async (req, res) => {
-  const { minConfidence } = req.body;
-  if (typeof minConfidence !== 'number' || minConfidence < 0 || minConfidence > 100) {
-    return res.status(400).json({ error: 'minConfidence must be 0-100' });
-  }
-  await prisma.settings.update({ where: { id: 1 }, data: { minConfidence } });
-  res.json({ ok: true });
-});
+router.put('/confidence', ...simpleSetting('minConfidence', (v) =>
+  typeof v !== 'number' || v < 0 || v > 100 ? 'minConfidence must be 0-100' : null
+));
 
 router.put('/autotrade', authMiddleware, async (req, res) => {
   const { autoTrade, autoTradeAmount, maxOpenTrades, allowShort } = req.body;
@@ -164,22 +175,54 @@ router.put('/ofi-prompt', authMiddleware, async (req, res) => {
   res.json({ ok: true });
 });
 
-router.put('/ofi', authMiddleware, async (req, res) => {
-  const { ofiEnabled } = req.body;
-  if (typeof ofiEnabled !== 'boolean') {
-    return res.status(400).json({ error: 'ofiEnabled must be boolean' });
-  }
-  await prisma.settings.update({ where: { id: 1 }, data: { ofiEnabled } });
-  res.json({ ok: true });
-});
+router.put('/ofi', ...simpleSetting('ofiEnabled', (v) =>
+  typeof v !== 'boolean' ? 'ofiEnabled must be boolean' : null
+));
 
-router.put('/threshold', authMiddleware, async (req, res) => {
-  const { dipThreshold } = req.body;
-  if (typeof dipThreshold !== 'number' || dipThreshold < 1 || dipThreshold > 50) {
-    return res.status(400).json({ error: 'dipThreshold must be 1-50' });
+router.put('/threshold', ...simpleSetting('dipThreshold', (v) =>
+  typeof v !== 'number' || v < 1 || v > 50 ? 'dipThreshold must be 1-50' : null
+));
+
+router.post('/test-prompt', authMiddleware, async (req, res) => {
+  if (!env.anthropicApiKey) {
+    return res.json({ ok: false, error: 'Anthropic API key not configured' });
   }
-  await prisma.settings.update({ where: { id: 1 }, data: { dipThreshold } });
-  res.json({ ok: true });
+  const s = await prisma.settings.findUnique({ where: { id: 1 } });
+  if (!s) return res.status(404).json({ error: 'Settings not found' });
+
+  const anthropic = new Anthropic({ apiKey: env.anthropicApiKey });
+  const userMessage = `Пара: BTCUSDT → BTCUSDT
+Цена: 65000
+OBD: obd1=-18 obd2=-15 obd3=-12 obd4=-10
+Тренд: 5m: UP (+0.3%) | 15m: UP (+0.8%)
+RSI(14): 35 — перепродан
+ATR(14): 320 (0.49% от цены) — ИСПОЛЬЗУЙ ДЛЯ РАСЧЁТА SL/TP`;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 1024,
+      system: s.claudePrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    });
+    const text = message.content[0].text;
+    let direction = null;
+    let confidence = null;
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        direction = parsed.direction ?? null;
+        confidence = parsed.confidence ?? null;
+      }
+    } catch {
+      // ignore parse errors — still return raw text
+    }
+    res.json({ ok: true, response: text, direction, confidence });
+  } catch (err) {
+    logger.error('Test prompt failed', { error: err.message });
+    res.json({ ok: false, error: err.message });
+  }
 });
 
 export default router;

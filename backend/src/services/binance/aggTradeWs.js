@@ -12,10 +12,13 @@ import { processAggTrade } from '../indicators/ofiEngine.js';
 let ws = null;
 let activePairs = [];
 let reconnectTimer = null;
+let stopped = false;
 
 export function startAggTradeWs() {
+  stopped = false;
   prisma.tradingPair.findMany({ where: { isActive: true } })
     .then((pairs) => {
+      if (stopped) return;
       activePairs = pairs;
       connect();
     })
@@ -42,7 +45,8 @@ function connect() {
   });
 
   ws.on('close', () => {
-    logger.warn('Binance aggTrade WS closed, reconnecting in 3s');
+    logger.warn('Binance aggTrade WS closed', { stopped });
+    if (stopped) return;
     reconnectTimer = setTimeout(connect, 3000);
   });
 
@@ -53,10 +57,7 @@ function connect() {
 }
 
 export function stopAggTradeWs() {
+  stopped = true;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  if (ws) {
-    ws.removeAllListeners('close');
-    ws.close();
-    ws = null;
-  }
+  if (ws) { ws.removeAllListeners(); ws.close(); ws = null; }
 }

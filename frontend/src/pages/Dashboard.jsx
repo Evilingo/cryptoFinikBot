@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAlertSound } from '../hooks/useAlertSound';
+import { useStatusToast } from '../hooks/useStatusToast';
 import { CoinGlyph, ConnIndicator, formatPrice } from '../components/primitives';
 import { Sparkchart, genCandles } from '../components/charts';
 import { calcSlPrice, calcTpPrice } from '../utils/trade';
@@ -44,7 +45,7 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
   const [slPct, setSlPct] = useState('1.5');
   const [tpPct, setTpPct] = useState('3.0');
   const [selectedPairIdx, setSelectedPairIdx] = useState(0);
-  const [tradeStatus, setTradeStatus] = useState(null);
+  const { status: tradeStatus, showStatus: showTradeStatus } = useStatusToast();
   // chartTick triggers re-render when candle data changes
   const [chartTick, setChartTick] = useState(0);
 
@@ -56,11 +57,6 @@ export default function Dashboard({ onOpenSignal, onNewSignal }) {
   const deltaRef = useRef({});
   const [deltaData, setDeltaData] = useState({});
   const klineTimeRef = useRef({});
-
-  const showTradeStatus = (ok, msg) => {
-    setTradeStatus({ ok, msg });
-    setTimeout(() => setTradeStatus(null), 3000);
-  };
 
   const playAlert = useAlertSound();
 

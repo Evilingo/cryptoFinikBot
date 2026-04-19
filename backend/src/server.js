@@ -27,6 +27,7 @@ import klinesRoutes from './routes/klines.js';
 import statsRoutes from './routes/stats.js';
 import telegramRoutes from './routes/telegram.js';
 import { setupTelegramWebhook } from './services/notifications/telegramBot.js';
+import { reconcileOpenTrades } from './services/bybit/reconciliation.js';
 
 validateEnv();
 
@@ -146,6 +147,37 @@ async function seedAdmin() {
   }
 }
 
+// ARCH-01: Runs every 5 minutes. Cleans up signals stuck in "analyzing" state.
+async function cleanupStaleSignals() {
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  const stale = await prisma.signal.findMany({
+    where: {
+      claudeAnalysis: '',
+      outcome: null,
+      createdAt: { lt: fiveMinutesAgo },
+    },
+    select: { id: true },
+  });
+
+  if (stale.length === 0) return;
+
+  const ids = stale.map((s) => s.id);
+  await prisma.signal.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      outcome: 'EXPIRED',
+      claudeAnalysis: 'Signal expired — no Claude response received',
+    },
+  });
+
+  logger.warn(`[CleanupStaleSignals] Marked ${stale.length} stale signal(s) as EXPIRED`);
+
+  const { broadcast } = await import('./ws/hub.js');
+  for (const { id } of stale) {
+    broadcast({ type: 'SIGNAL_UPDATE', signalId: id, outcome: 'EXPIRED' });
+  }
+}
+
 server.listen(env.port, async () => {
   logger.info(`Server running on port ${env.port}`);
 
@@ -165,6 +197,27 @@ server.listen(env.port, async () => {
   }
 
   await initExchangeWs(exchange);
+
+  // TRADE-03: Reconciliation job — closes OPEN trades missed by userDataStream
+  // Run immediately on startup to catch any fills missed while server was down
+  reconcileOpenTrades().catch((err) =>
+    logger.warn('[Reconciliation] Unexpected error on startup', { error: err.message })
+  );
+  setInterval(() => {
+    reconcileOpenTrades().catch((err) =>
+      logger.warn('[Reconciliation] Unexpected error', { error: err.message })
+    );
+  }, 5 * 60 * 1000);
+
+  // ARCH-01: Cleanup job — marks signals stuck in "Analyzing..." as EXPIRED after 5 minutes
+  cleanupStaleSignals().catch((err) =>
+    logger.warn('[CleanupStaleSignals] Unexpected error on startup', { error: err.message })
+  );
+  setInterval(() => {
+    cleanupStaleSignals().catch((err) =>
+      logger.warn('[CleanupStaleSignals] Unexpected error', { error: err.message })
+    );
+  }, 5 * 60 * 1000);
 
   // Register Telegram webhook (non-blocking)
   const publicUrl = process.env.RAILWAY_PUBLIC_DOMAIN

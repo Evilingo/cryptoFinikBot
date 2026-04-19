@@ -22,8 +22,8 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
   });
 
   for (const signal of pendingSignals) {
-    // WAIT = no trade, no position to track
-    if (signal.direction === 'WAIT') continue;
+    // WAIT = no trade, no position to track; null = data corruption guard (isLong would default to false → wrong SHORT PnL)
+    if (!signal.direction || signal.direction === 'WAIT') continue;
 
     const age = Date.now() - new Date(signal.createdAt).getTime();
 
@@ -50,7 +50,11 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
     if (!outcome && age > TRACKING_TIMEOUT) {
       outcomePrice = currentPrice;
       outcomePnl = calcPnl(signal.price, currentPrice, isLong);
-      outcome = outcomePnl > 0.1 ? 'WIN' : outcomePnl < -0.1 ? 'LOSS' : 'BREAKEVEN';
+      // ARCH-02: не форсируем WIN/LOSS по midPrice — это не реальный ордер
+      // TRADE-04 (backlog): outcomePnl здесь НЕ вычитает 0.2% round-trip fees (в отличие от runBacktest).
+      // TIMEOUT исключён из статистики (getEnhancedStats notIn), поэтому сейчас не критично.
+      // Если TIMEOUT когда-либо включат в аналитику — добавить: outcomePnl -= Math.abs(outcomePnl) * 0.002 (или пересчитать через netPnl).
+      outcome = 'TIMEOUT';
     }
 
     if (outcome) {
@@ -102,7 +106,7 @@ export async function trackSignalOutcomes(symbol, currentPrice) {
  * Статистика точности сигналов.
  */
 export async function getEnhancedStats(pairId = null, since = null) {
-  const where = { outcome: { not: null }, direction: { not: 'WAIT' } };
+  const where = { outcome: { notIn: [null, 'EXPIRED', 'TIMEOUT'] }, direction: { not: 'WAIT' } };
   if (pairId) where.pairId = pairId;
   if (since) where.createdAt = { gte: since };
 
@@ -398,6 +402,8 @@ export async function runOptimize({ pairIds = null, from, to, directionFilter = 
             maxDrawdown: Math.round(maxDrawdown * 100) / 100,
             maxConsLosses,
           });
+          // BUG-16: уступаем event loop между комбинациями, чтобы не блокировать его на 30-60 секунд
+          await new Promise(resolve => setImmediate(resolve));
         }
       }
     }
@@ -417,7 +423,7 @@ export async function getSignalStats(pairId = null, since = null) {
     where: { ...baseWhere, direction: 'WAIT' },
   });
 
-  const where = { ...baseWhere, outcome: { not: null }, direction: { not: 'WAIT' } };
+  const where = { ...baseWhere, outcome: { notIn: [null, 'EXPIRED', 'TIMEOUT'] }, direction: { not: 'WAIT' } };
 
   const signals = await prisma.signal.findMany({
     where,
@@ -460,7 +466,7 @@ export async function getSignalStats(pairId = null, since = null) {
 
   // Последние 20 результатов для графика — только LONG/SHORT
   const recent = await prisma.signal.findMany({
-    where: { outcome: { not: null }, direction: { not: 'WAIT' } },
+    where: { outcome: { notIn: [null, 'EXPIRED', 'TIMEOUT'] }, direction: { not: 'WAIT' } },
     orderBy: { createdAt: 'desc' },
     take: 20,
     select: { id: true, outcome: true, outcomePnl: true, direction: true, createdAt: true, pair: { select: { monitorSymbol: true } } },

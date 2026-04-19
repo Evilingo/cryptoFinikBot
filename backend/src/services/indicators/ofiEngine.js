@@ -5,6 +5,7 @@
  */
 
 import { prisma } from '../../db/prisma.js';
+import { makeSettingCache } from '../../db/settingsCache.js';
 import { logger } from '../../config/logger.js';
 import { analyzeOfiSignal } from '../claude/orchestrator.js';
 import { getMidPrice } from '../exchange/index.js';
@@ -23,20 +24,10 @@ const SHORT_THRESHOLD = 0.35;    // buy ratio < 35%
 const lastSignalTime = new Map();
 const SIGNAL_COOLDOWN = 90 * 60 * 1000;
 
-// Cache ofiEnabled — refresh every 60s
-let cachedOfiEnabled = false;
-let ofiEnabledLastFetch = 0;
-const OFI_CACHE_TTL = 60_000;
-
-async function isOfiEnabled() {
-  if (Date.now() - ofiEnabledLastFetch < OFI_CACHE_TTL) return cachedOfiEnabled;
-  try {
-    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
-    cachedOfiEnabled = settings?.ofiEnabled ?? false;
-    ofiEnabledLastFetch = Date.now();
-  } catch {}
-  return cachedOfiEnabled;
-}
+const isOfiEnabled = makeSettingCache(
+  async () => { const s = await prisma.settings.findUnique({ where: { id: 1 } }); return s?.ofiEnabled ?? false; },
+  false,
+);
 
 export async function processAggTrade(pair, { isBuyerMaker, price, qty }) {
   if (!await isOfiEnabled()) return;

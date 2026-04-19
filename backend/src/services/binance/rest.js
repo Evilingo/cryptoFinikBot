@@ -91,11 +91,15 @@ export async function getKlines(symbol, interval = '1m', limit = 100) {
   }));
 }
 
-// Cache symbol info for price/qty precision
-const symbolInfoCache = new Map();
+// Cache symbol info for price/qty precision — TTL 24h
+const symbolInfoCache = new Map(); // { symbol: { data, fetchedAt } }
+const SYMBOL_CACHE_TTL = 24 * 60 * 60 * 1000;
 
 async function getSymbolInfo(symbol) {
-  if (symbolInfoCache.has(symbol)) return symbolInfoCache.get(symbol);
+  const cached = symbolInfoCache.get(symbol);
+  if (cached && Date.now() - cached.fetchedAt < SYMBOL_CACHE_TTL) {
+    return cached.data;
+  }
 
   const url = `${DATA_URL}/api/v3/exchangeInfo?symbol=${symbol}`;
   const res = await fetch(url);
@@ -112,7 +116,7 @@ async function getSymbolInfo(symbol) {
     qtyPrecision: countDecimals(lotFilter?.stepSize || '0.001'),
   };
 
-  symbolInfoCache.set(symbol, result);
+  symbolInfoCache.set(symbol, { data: result, fetchedAt: Date.now() });
   return result;
 }
 

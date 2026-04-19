@@ -12,10 +12,15 @@ import { env } from '../../config/env.js';
 
 let ws = null;
 let reconnectTimer = null;
+let stopped = false;
 
 export function startBybitAggTradeWs() {
+  stopped = false;
   prisma.tradingPair.findMany({ where: { isActive: true } })
-    .then((pairs) => connect(pairs))
+    .then((pairs) => {
+      if (stopped) return;
+      connect(pairs);
+    })
     .catch((err) => logger.error('bybitAggTradeWs: failed to load pairs', { error: err.message }));
 }
 
@@ -50,7 +55,8 @@ function connect(pairs) {
   });
 
   ws.on('close', () => {
-    logger.warn('Bybit aggTrade WS closed, reconnecting in 3s');
+    logger.warn('Bybit aggTrade WS closed', { stopped });
+    if (stopped) return;
     reconnectTimer = setTimeout(() => connect(pairs), 3000);
   });
 
@@ -61,10 +67,7 @@ function connect(pairs) {
 }
 
 export function stopBybitAggTradeWs() {
+  stopped = true;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  if (ws) {
-    ws.removeAllListeners('close');
-    ws.close();
-    ws = null;
-  }
+  if (ws) { ws.removeAllListeners(); ws.close(); ws = null; }
 }

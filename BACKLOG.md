@@ -23,56 +23,56 @@
 
 ---
 
-### BUG-01 — "Remember me" не работает
+### ~~BUG-01~~ — "Remember me" не работает ✅ FIXED
 **Файл:** `frontend/src/pages/Login.jsx:95`
 **Проблема:** `<input type="checkbox" defaultChecked/>` — нет `onChange`, нет state, нет логики. `login(username, password)` в `useAuth.jsx` не принимает параметр `remember`. Чекбокс полностью декоративный.
 **Исправление:** Добавить `useState(true)` → `remember`, передать в `login()`, в `useAuth` — если `!remember`, удалять refresh-token cookie при закрытии вкладки (sessionStorage вместо persistent cookie).
 
 ---
 
-### BUG-02 — "Change password" не работает
+### ~~BUG-02~~ — "Change password" не работает ✅ FIXED
 **Файл:** `frontend/src/pages/Settings.jsx:472`
 **Проблема:** `<button className="btn btn-ghost">Change password</button>` — нет `onClick`. Кнопка декоративная.
 **Исправление:** Добавить форму смены пароля + `PUT /api/auth/change-password` на бэкенде.
 
 ---
 
-### BUG-03 — Emergency Stop не работает
+### ~~BUG-03~~ — Emergency Stop не работает ✅ FIXED
 **Файл:** `frontend/src/pages/Settings.jsx:337`
 **Проблема:** `<button className="btn btn-short">Stop all trading</button>` — нет `onClick`. Автоторговлю нельзя экстренно остановить из UI.
 **Исправление:** `onClick` → `api.put('/settings/autotrade', { autoTrade: false })` + WS-сообщение об остановке.
 
 ---
 
-### BUG-04 — "Test prompt" не работает
+### ~~BUG-04~~ — "Test prompt" не работает ✅ FIXED
 **Файл:** `frontend/src/pages/Settings.jsx:432`
 **Проблема:** `<button className="btn btn-ghost">Test prompt</button>` — нет `onClick`. Протестировать промпт из UI невозможно.
 **Исправление:** `onClick` → `api.post('/settings/test-prompt')` → показать ответ Claude в модале.
 
 ---
 
-### BUG-05 — "Send test" Telegram ничего не отправляет
+### ~~BUG-05~~ — "Send test" Telegram ничего не отправляет ✅ FIXED
 **Файл:** `frontend/src/pages/Settings.jsx:453`
 **Проблема:** `onClick={() => {}}` — пустой обработчик. Telegram-тест не работает.
 **Исправление:** `onClick` → `api.post('/telegram/test')` → показать статус отправки.
 
 ---
 
-### BUG-06 — Account: Username нельзя сохранить
+### ~~BUG-06~~ — Account: Username нельзя сохранить ✅ FIXED
 **Файл:** `frontend/src/pages/Settings.jsx:466`
 **Проблема:** `<input defaultValue={settings.username || 'admin'}/>` — uncontrolled input без `onChange`. Изменения не сохраняются. Нет кнопки Save.
 **Исправление:** Перевести в controlled input + `PUT /api/auth/profile`.
 
 ---
 
-### BUG-07 — Account: Email нельзя сохранить
+### ~~BUG-07~~ — Account: Email нельзя сохранить ✅ FIXED
 **Файл:** `frontend/src/pages/Settings.jsx:470`
 **Проблема:** `<input defaultValue={settings.email || ''}/>` — uncontrolled input без `onChange`. Поле email вообще не хранится в БД (`Settings` модель не имеет поля `email`).
 **Исправление:** Добавить `email` в модель `User` + controlled input + Save.
 
 ---
 
-### BUG-08 — Account секция: нет кнопки Save
+### ~~BUG-08~~ — Account секция: нет кнопки Save ✅ FIXED
 **Файл:** `frontend/src/pages/Settings.jsx:460-475`
 **Проблема:** В секции Account нет ни одного `onClick` — даже если исправить inputs на controlled, сохранить данные некуда.
 **Исправление:** Добавить `<button onClick={saveAccount}>Save</button>` + соответствующий эндпоинт.
@@ -86,7 +86,7 @@
 
 ---
 
-### BUG-11 — Статусы сигналов непонятны человеку
+### ~~BUG-11~~ — Статусы сигналов непонятны человеку ✅ FIXED
 **Файл:** `frontend/src/components/primitives.jsx:100-107`
 **Проблема:** `OutcomeBadge` показывает сырые DB-значения: "OPEN" (= PENDING, позиции нет), "NO TRADE" (= старый WAIT до фикса BUG-00), "WAIT" (= Claude отказал), "WIN"/"LOSS"/"BREAKEVEN". Пользователь не понимает разницу между "OPEN" (трекер ещё не проверил) и реально открытой позицией.
 **Исправление:** Переименовать метки: OPEN → "TRACKING", NO TRADE → "SKIPPED (legacy)", WAIT → "SKIPPED". Добавить tooltip/hint с расшифровкой на hover. Также рассмотреть отдельный бейдж для сигналов с реальным Trade (linkage через `signalId`).
@@ -239,56 +239,56 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### KISS-16 — 10 PUT-маршрутов в settings.js с одинаковым паттерном
+### ~~KISS-16~~ — 10 PUT-маршрутов в settings.js с одинаковым паттерном ✅ FIXED
 **Файл:** `backend/src/routes/settings.js:36-176`
 **Проблема:** 10 функций с идентичной структурой: валидация поля из req.body → prisma.settings.update → res.json({ok:true}). Изменение паттерна (логирование, rate limit, аудит) требует правки в 10 местах.
 **Исправление:** Фабрика `createSettingRoute(field, validator)` или единый PUT `/settings` с map валидаторов по ключу.
 
 ---
 
-### KISS-17 — prisma.settings.findUnique({ where: { id: 1 } }) в 14+ файлах
+### ~~KISS-17~~ — prisma.settings.findUnique({ where: { id: 1 } }) в 14+ файлах ✅ FIXED
 **Файлы:** `binance/rest.js`, `bybit/rest.js`, `bybit/userDataStream.js`, `exchange/index.js`, `ofiEngine.js`, `engine.js`, `notifier.js`, `telegramBot.js`, `prompts.js`, `server.js`, `routes/settings.js` и др.
 **Проблема:** Доступ к singleton Settings разбросан по всему коду без кеширования. При изменении схемы нужно менять в 14+ местах.
 **Исправление:** `getSettings()` в `db/prisma.js` с кешем и TTL — аналог уже существующего `getDipThreshold()` в engine.js.
 
 ---
 
-### KISS-18 — Паттерн saveXxx в Settings.jsx повторяется 10+ раз
+### ~~KISS-18~~ — Паттерн saveXxx в Settings.jsx повторяется 10+ раз ✅ FIXED
 **Файл:** `frontend/src/pages/Settings.jsx:77-193`
 **Проблема:** Каждая из 10 save-функций: `try { await api.put(...); showStatus(true, msg) } catch { showStatus(false, err) }`. Идентичная структура, только endpoint и поля разные.
 **Исправление:** `const apiSave = (endpoint, payload, msg) => api.put(endpoint, payload).then(...)` — переиспользовать вместо 10 копий.
 
 ---
 
-### KISS-19 — showStatus (ok, msg) + setTimeout дублируется в 3 компонентах
+### ~~KISS-19~~ — showStatus (ok, msg) + setTimeout дублируется в 3 компонентах ✅ FIXED
 **Файлы:** `Dashboard.jsx:60-63`, `Settings.jsx:77-80`, `SignalModal.jsx:53-56`
 **Проблема:** Идентичная функция в трёх местах. При изменении таймаута (3000ms) нужно менять в трёх файлах.
 **Исправление:** `useStatusToast()` хук → `{ status, showStatus }`.
 
 ---
 
-### KISS-20 — Сложные fallback-цепочки в SignalModal
+### ~~KISS-20~~ — Сложные fallback-цепочки в SignalModal ✅ FIXED
 **Файл:** `frontend/src/components/SignalModal.jsx:24-31`
 **Проблема:** `signal.claudeAnalysis || signal.analysis || ''`, `signal.suggestedSl || signal.stopLoss || signal.sl` — признак нестабильного формата. KISS-06 нормализовал `/signals` роут, но SignalModal получает сигналы из WS (broadcast) и из модала открытого вручную — разные форматы.
 **Исправление:** Нормализовать WS SIGNAL_UPDATE broadcast в том же формате что и REST `/signals`. Тогда SignalModal получает один стабильный формат.
 
 ---
 
-### KISS-21 — Дублированная логика кеширования Settings в engine.js и ofiEngine.js
+### ~~KISS-21~~ — Дублированная логика кеширования Settings в engine.js и ofiEngine.js ✅ FIXED
 **Файлы:** `engine.js:25-33`, `ofiEngine.js:31-39`
 **Проблема:** `getDipThreshold()` и `isOfiEnabled()` — одинаковый паттерн: cachedValue + lastFetch + TTL + try/catch. Третья такая функция создаст антипаттерн.
 **Исправление:** `makeSettingCache(fieldName, defaultValue, ttl)` — фабрика кешированного геттера.
 
 ---
 
-### KISS-22 — Дублированная валидация дат в stats.js
+### ~~KISS-22~~ — Дублированная валидация дат в stats.js ✅ FIXED
 **Файл:** `backend/src/routes/stats.js`
 **Проблема:** Блок `new Date(from/to)` + `isNaN` + `fromDate >= toDate` повторяется в `/backtest` и `/optimize`.
 **Исправление:** `validateDateRange(from, to)` → `{ ok, error, fromDate, toDate }`.
 
 ---
 
-### KISS-23 — Паттерн showStatus в SignalModal идентичен Dashboard/Settings
+### ~~KISS-23~~ — Паттерн showStatus в SignalModal идентичен Dashboard/Settings ✅ FIXED
 **Файл:** `frontend/src/components/SignalModal.jsx:53-56`
 **Проблема:** Третья копия `showStatus` + `setTimeout 3000`. См. KISS-19.
 **Исправление:** То же — `useStatusToast()` хук.
@@ -299,7 +299,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### TRADE-01 — Принудительный выход при обратном сигнале
+### ~~TRADE-01~~ — Принудительный выход при обратном сигнале ✅ FIXED
 **Приоритет:** Medium
 **Проблема:** Если открыт LONG на ETH и OBD генерирует SHORT сигнал — система либо игнорирует его (лимит позиций), либо открывает вторую позицию. Нет механизма "умного выхода" при смене рыночной структуры.
 **Исправление:** В `executeAutoTrade` при direction != направления открытой Trade на этом символе — принудительно закрыть открытую позицию (market sell/buy) до размещения новой. По сути: обратный сигнал = сигнал выхода из текущей позиции.
@@ -308,28 +308,28 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### TRADE-02 — maxOpenTrades per symbol вместо глобального
+### ~~TRADE-02~~ — maxOpenTrades per symbol вместо глобального ✅ FIXED
 **Приоритет:** High
 **Проблема:** `openCount = prisma.trade.count({ where: { status: 'OPEN' } })` — глобальный счётчик. Позволяет иметь несколько OPEN Trade на одном символе, что ломает `findFirst` в userDataStream и делает `cancelAllOpenOrders` опасным (отменяет TP/SL всех позиций по символу).
 **Исправление:** Заменить проверку на `{ status: 'OPEN', symbol: pair.tradeSymbol }`. Один символ = максимум одна позиция. Глобальный `maxOpenTrades` сохранить для ограничения суммарной экспозиции по всем символам.
 
 ---
 
-### TRADE-03 — Reconciliation job: сверка открытых Trade с биржей
+### ~~TRADE-03~~ — Reconciliation job: сверка открытых Trade с биржей ✅ FIXED
 **Приоритет:** Medium
 **Проблема:** Если fill-событие пропущено (WS разрыв) — Trade навсегда остаётся `status='OPEN'` в DB. Нет механизма периодической сверки.
 **Исправление:** Cron каждые 5 минут: для каждой OPEN Trade запросить `/v5/order/history` по `binanceOrderId` — если биржа показывает исполненный exit ордер → закрыть Trade в DB с реальным PnL.
 
 ---
 
-### TRADE-04 — PnL в userDataStream не учитывает комиссии
+### ~~TRADE-04~~ — PnL в userDataStream не учитывает комиссии ✅ FIXED
 **Приоритет:** Low
 **Проблема:** В `userDataStream.js` PnL считается как чистая разница цен без вычета 0.2% round-trip fee. Бэктест вычитает комиссии, реальные сделки — нет. Статистика реальных сделок выглядит лучше бэктеста искусственно.
 **Исправление:** `pnl = roundedPnl - 0.2` (или точнее — вычитать 0.1% на вход + 0.1% на выход).
 
 ---
 
-### TRADE-05 — placeSeparateTpSl fire-and-forget: ошибка SL не останавливает Trade
+### ~~TRADE-05~~ — placeSeparateTpSl fire-and-forget: ошибка SL не останавливает Trade ✅ FIXED
 **Файл:** `backend/src/services/bybit/rest.js:placeSeparateTpSl()`
 **Приоритет:** High
 **Проблема:** `placeSeparateTpSl()` вызывается как fire-and-forget (`.catch(err => logger.warn(...))`). Если SL stop-ордер не создался (ошибка API, precision issue, rate limit) — Trade записывается в DB со статусом OPEN, позиция куплена, но стоп-лосса на бирже нет. Логируется warn, основной поток не прерывается.
@@ -337,7 +337,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### TRADE-06 — Exit ордера матчатся по symbol+side, не по orderId
+### ~~TRADE-06~~ — Exit ордера матчатся по symbol+side, не по orderId ✅ FIXED
 **Файл:** `backend/src/services/bybit/userDataStream.js:handleOrderFill()`
 **Приоритет:** High
 **Проблема:** При получении exit fill-события (TP или SL) система находит Trade через `findFirst({ symbol, status:'OPEN' })` — без привязки к конкретному orderId. `binanceOrderId` хранит entry orderId, но для exit не используется. При нескольких OPEN Trade на одном символе закрывается случайная запись (без ORDER BY в findFirst).
@@ -345,7 +345,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### TRADE-07 — Race condition: fill-событие до Trade.create в DB
+### TRADE-07 — Race condition: fill-событие до Trade.create в DB ⏭ WONTFIX
 **Файл:** `backend/src/services/bybit/userDataStream.js`, `backend/src/services/indicators/engine.js`
 **Приоритет:** Medium
 **Проблема:** `placeOrder()` возвращает orderId → 300ms задержка (avgPrice) → `Trade.create()`. Если fill-событие для entry ордера придёт раньше чем Trade записана в DB (редко, но возможно при быстром исполнении) — entry fill не обновит `trade.price`, exit fill найдёт `openTrade=null` и пропустит закрытие.
@@ -353,7 +353,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### TRADE-08 — Exit fill пропускается при отсутствии OPEN Trade в DB
+### ~~TRADE-08~~ — Exit fill пропускается при отсутствии OPEN Trade в DB ✅ FIXED
 **Файл:** `backend/src/services/bybit/userDataStream.js:handleOrderFill()`
 **Приоритет:** Medium
 **Проблема:** Если `openTrade = null` (Trade удалена вручную, или ещё не создана — см. TRADE-07), то `isOpposingSide = false`. Для classic-аккаунта `stopOrderType = ''`, значит `isInlineTpSl = false`. `isExitOrder = false` → fill обрабатывается как entry fill, Trade не закрывается, Telegram не отправляется. Silent skip.
@@ -383,7 +383,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### SEC-03 — Telegram token/chatId хранятся незашифрованными в БД
+### ~~SEC-03~~ — Telegram token/chatId хранятся незашифрованными в БД ✅ FIXED
 **Файл:** `backend/src/services/notifications/notifier.js:18-37`
 **Приоритет:** HIGH
 **Проблема:** Bybit/Binance ключи шифруются AES-256-GCM перед записью в `Settings`. Telegram token и chat ID хранятся в открытом виде. При утечке БД — полный доступ к боту.
@@ -391,7 +391,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### SEC-04 — Telegram webhook не верифицирует подпись Telegram
+### ~~SEC-04~~ — Telegram webhook не верифицирует подпись Telegram ✅ FIXED
 **Файл:** `backend/src/routes/telegram.js:8-17`
 **Приоритет:** HIGH
 **Проблема:** `POST /telegram/webhook` принимает любой запрос. Злоумышленник может подделать webhook и вызвать команды бота.
@@ -399,7 +399,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### SEC-05 — Trade order: не валидируются SL/TP на экономический смысл
+### ~~SEC-05~~ — Trade order: не валидируются SL/TP на экономический смысл ✅ FIXED
 **Файл:** `backend/src/routes/trade.js:10-48`
 **Приоритет:** MEDIUM
 **Проблема:** `POST /api/trade/order` принимает `stopLoss` и `takeProfit` без проверки: SL ≠ TP, SL < TP для LONG, SL > TP для SHORT. Можно разместить ордер с идентичными или перевёрнутыми уровнями.
@@ -407,7 +407,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### ARCH-01 — Signal создаётся до Claude — возможен permanent "Analyzing..."
+### ~~ARCH-01~~ — Signal создаётся до Claude — возможен permanent "Analyzing..." ✅ FIXED
 **Файл:** `backend/src/services/indicators/ofiEngine.js:41-121`
 **Приоритет:** HIGH
 **Проблема:** OFI сигнал сохраняется в БД с пустым `claudeAnalysis`, затем Claude анализирует асинхронно. При падении бэкенда между созданием и Claude-ответом — сигнал навсегда остаётся без анализа (PENDING). OBD pipeline тоже создаёт Signal до Claude (`claudePipeline.js`).
@@ -415,7 +415,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### ARCH-02 — Таймаут Signal в tracker.js: принудительный исход некорректен
+### ~~ARCH-02~~ — Таймаут Signal в tracker.js: принудительный исход некорректен ✅ FIXED
 **Файл:** `backend/src/services/signals/tracker.js:50-54`
 **Приоритет:** MEDIUM
 **Проблема:** Если за 1 час цена не достигла SL/TP — сигнал форсируется в WIN/LOSS/BREAKEVEN по текущей цене. Это создаёт ложные исходы в статистике. OBD-сигналы на mean-reversion — нормально. Но принцип "закрыть по таймауту по midPrice" может маскировать реальную неэффективность системы.
@@ -423,7 +423,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### ARCH-03 — symbolInfoCache растёт неограниченно
+### ~~ARCH-03~~ — symbolInfoCache растёт неограниченно ✅ FIXED
 **Файлы:** `binance/rest.js:95-117`, `bybit/rest.js:213-244`
 **Приоритет:** LOW
 **Проблема:** `symbolInfoCache` — глобальная `Map` без LRU и без TTL. При большом количестве уникальных символов (в теории) — утечка памяти.
@@ -431,7 +431,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### ARCH-04 — WS авто-реконнект без exponential backoff
+### ~~ARCH-04~~ — WS авто-реконнект без exponential backoff ✅ FIXED
 **Файлы:** `frontend/src/hooks/useWebSocket.jsx:34-36`
 **Приоритет:** LOW
 **Проблема:** При отключении сервера клиент пытается переподключиться каждые 3 секунды бесконечно. При долгом downtime — лавина запросов на сервер при его возвращении.
@@ -445,7 +445,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### BUG-13 — Trade.slOrderFailed — мёртвое поле, никогда не true
+### ~~BUG-13~~ — Trade.slOrderFailed — мёртвое поле, никогда не true ✅ FIXED
 **Файл:** `backend/src/services/indicators/engine.js:261`, `backend/prisma/schema.prisma`
 **Приоритет:** HIGH
 **Проблема:** `slOrderFailed: false` записывается при создании Trade. При SL failure функция делает `return` до `trade.create` — Trade не создаётся вообще. Значит поле всегда `false`. При slFailed позиция существует на бирже, но в DB нет — `userDataStream` её никогда не закроет.
@@ -453,7 +453,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### BUG-14 — aggTradeWs нет `stopped` флага — ghost-reconnect при смене биржи
+### ~~BUG-14~~ — aggTradeWs нет `stopped` флага — ghost-reconnect при смене биржи ✅ FIXED
 **Файлы:** `backend/src/services/binance/aggTradeWs.js`, `backend/src/services/bybit/aggTradeWs.js`
 **Приоритет:** HIGH
 **Проблема:** При `stopAggTradeWs()` убирается `reconnectTimer`, но если `ws.close()` вызывает `'close'` event до `removeAllListeners` — возникает реконнект. Остальные WS-сервисы используют `stopped = true`. При переключении биржи возможен ghost-reconnect старого aggTrade WS.
@@ -461,7 +461,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### BUG-15 — Смена пар при переключении биржи не атомарна
+### ~~BUG-15~~ — Смена пар при переключении биржи не атомарна ✅ FIXED
 **Файл:** `backend/src/routes/settings.js:88-110`
 **Приоритет:** MEDIUM
 **Проблема:** `updateMany` + цикл upsert без транзакции. При краше посередине — часть пар активна для новой биржи, часть для старой. `switchExchangeWs` уже запущен, `activePairs` несогласован.
@@ -469,7 +469,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### BUG-16 — runOptimize блокирует event loop на больших данных
+### ~~BUG-16~~ — runOptimize блокирует event loop на больших данных ✅ FIXED
 **Файл:** `backend/src/services/signals/tracker.js:288`
 **Приоритет:** MEDIUM
 **Проблема:** `runOptimize` выполняется синхронно. При 4 парах × 7 дней × 72 комбинации — 30-60s блокировки event loop. Нет timeout, нет streaming.
@@ -477,7 +477,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### BUG-17 — Binance userDataStream закрывает ручные сделки по symbol
+### ~~BUG-17~~ — Binance userDataStream закрывает ручные сделки по symbol ✅ FIXED
 **Файл:** `backend/src/services/binance/userDataStream.js:33-35`
 **Приоритет:** MEDIUM
 **Проблема:** Поиск открытой сделки по `symbol` без привязки к `binanceOrderId`. Ручная LIMIT-сделка на том же символе может быть закрыта как auto-trade. Bybit `userDataStream.js` это исправляет, Binance — нет.
@@ -485,7 +485,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### BUG-18 — Signal таблица без индекса по createdAt — slow queries в Stats
+### ~~BUG-18~~ — Signal таблица без индекса по createdAt — slow queries в Stats ✅ FIXED
 **Файл:** `backend/src/routes/stats.js:11-13`, `backend/prisma/schema.prisma`
 **Приоритет:** MEDIUM
 **Проблема:** `GET /stats` загружает все сигналы без date-filter. `Signal` не имеет индекса по `createdAt` — при >1000 сигналов полный seq scan.
@@ -493,7 +493,7 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
-### BUG-19 — useWebSocket не обновляет токен перед реконнектом
+### ~~BUG-19~~ — useWebSocket не обновляет токен перед реконнектом ✅ FIXED
 **Файл:** `frontend/src/hooks/useWebSocket.jsx:14-16`
 **Приоритет:** HIGH
 **Проблема:** При реконнекте берётся `getAccessToken()` из модуля. Если WS закрылся из-за истёкшего токена — клиент реконнектится с тем же expired токеном. Нет явного refresh перед WS-реконнектом.

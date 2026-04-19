@@ -3,8 +3,19 @@ import api from '../services/api';
 import { CoinGlyph, Icon, ConfidenceBadge, formatPrice } from './primitives';
 import { Sparkchart, genCandles } from './charts';
 import { calcSlPrice, calcTpPrice } from '../utils/trade';
+import { useStatusToast } from '../hooks/useStatusToast';
 
-export default function SignalModal({ signal, onClose }) {
+function normalizeSignal(s) {
+  return {
+    ...s,
+    claudeAnalysis: s.claudeAnalysis ?? s.analysis ?? '',
+    suggestedSl: s.suggestedSl ?? s.stopLoss ?? s.sl ?? null,
+    suggestedTp: s.suggestedTp ?? s.takeProfit ?? s.tp ?? null,
+  };
+}
+
+export default function SignalModal({ signal: signalProp, onClose }) {
+  const signal = normalizeSignal(signalProp);
   const candles = useRef(genCandles(signal.price || 65000, 60)).current;
 
   const [qty, setQty] = useState('0.015');
@@ -14,19 +25,18 @@ export default function SignalModal({ signal, onClose }) {
   const [tpPct, setTpPct] = useState(
     signal.tp ? Math.abs((signal.tp - signal.price) / signal.price * 100).toFixed(1) : '3.0'
   );
-  const [tradeStatus, setTradeStatus] = useState(null); // {ok, msg}
+  const { status: tradeStatus, showStatus } = useStatusToast();
   const [balances, setBalances] = useState([]);
 
   useEffect(() => {
     api.get('/balance').then(({ data }) => setBalances(Array.isArray(data) ? data : [])).catch(() => {});
   }, []);
 
-  // Normalize signal fields
   const price = signal.price ?? 0;
   const direction = signal.direction || 'LONG';
-  const analysis = signal.claudeAnalysis || signal.analysis || '';
-  const sl = signal.suggestedSl || signal.stopLoss || signal.sl;
-  const tp = signal.suggestedTp || signal.takeProfit || signal.tp;
+  const analysis = signal.claudeAnalysis;
+  const sl = signal.suggestedSl;
+  const tp = signal.suggestedTp;
   const obd = signal.obd || [signal.obd1 ?? 0, signal.obd2 ?? 0, signal.obd3 ?? 0, signal.obd4 ?? 0];
   const monSym = signal.monitorSymbol || signal.pair?.monitorSymbol || signal.pair || '';
   const base = monSym.replace(/USDC$|USDT$/, '');
@@ -48,11 +58,6 @@ export default function SignalModal({ signal, onClose }) {
       q = baseBalance * fraction;
     }
     setQty(q.toFixed(6));
-  };
-
-  const showStatus = (ok, msg) => {
-    setTradeStatus({ ok, msg });
-    setTimeout(() => setTradeStatus(null), 3000);
   };
 
   const handleTrade = async () => {

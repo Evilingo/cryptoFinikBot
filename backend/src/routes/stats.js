@@ -7,9 +7,25 @@ import { authMiddleware } from '../middleware/auth.js';
 const router = Router();
 router.use(authMiddleware);
 
+function validateDateRange(from, to) {
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+    return { ok: false, error: 'Invalid date format' };
+  }
+  if (fromDate >= toDate) {
+    return { ok: false, error: 'from must be before to' };
+  }
+  return { ok: true, fromDate, toDate };
+}
+
 router.get('/', async (req, res) => {
   const pairId = req.query.pairId ? parseInt(req.query.pairId) : null;
-  const stats = await getSignalStats(pairId);
+  const sinceRaw = req.query.since ? new Date(req.query.since) : null;
+  const since = sinceRaw && !isNaN(sinceRaw)
+    ? sinceRaw
+    : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const stats = await getSignalStats(pairId, since);
   res.json(stats);
 });
 
@@ -47,14 +63,8 @@ router.get('/backtest', async (req, res) => {
     return res.status(400).json({ error: 'pairId, from, to are required' });
   }
 
-  const fromDate = new Date(from);
-  const toDate = new Date(to);
-  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
-    return res.status(400).json({ error: 'Invalid date format for from/to' });
-  }
-  if (fromDate >= toDate) {
-    return res.status(400).json({ error: 'from must be before to' });
-  }
+  const { ok, error, fromDate, toDate } = validateDateRange(from, to);
+  if (!ok) return res.status(400).json({ error });
 
   const parsedThreshold = threshold ? parseFloat(threshold) : 10;
   const parsedSl = slPct ? parseFloat(slPct) : 1.5;
@@ -84,12 +94,8 @@ router.get('/optimize', async (req, res) => {
   const { pairIds, from, to, direction } = req.query;
   if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
 
-  const fromDate = new Date(from);
-  const toDate   = new Date(to);
-  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
-    return res.status(400).json({ error: 'Invalid date format' });
-  }
-  if (fromDate >= toDate) return res.status(400).json({ error: 'from must be before to' });
+  const { ok, error, fromDate, toDate } = validateDateRange(from, to);
+  if (!ok) return res.status(400).json({ error });
 
   const parsedPairIds = pairIds
     ? pairIds.split(',').map(Number).filter(Boolean)

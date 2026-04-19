@@ -1,4 +1,5 @@
 import { prisma } from '../../db/prisma.js';
+import { makeSettingCache } from '../../db/settingsCache.js';
 import { logger } from '../../config/logger.js';
 import { analyzeSignal } from '../claude/orchestrator.js';
 import { broadcast } from '../../ws/hub.js';
@@ -17,20 +18,10 @@ const SIGNAL_COOLDOWN = 15 * 60 * 1000;
 const lastSnapshotTime = new Map();
 const SNAPSHOT_INTERVAL = 30_000;
 
-// Cache dipThreshold — refresh every 60s
-let cachedThreshold = 10;
-let thresholdLastFetch = 0;
-const THRESHOLD_CACHE_TTL = 60_000;
-
-async function getDipThreshold() {
-  if (Date.now() - thresholdLastFetch < THRESHOLD_CACHE_TTL) return cachedThreshold;
-  try {
-    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
-    cachedThreshold = settings?.dipThreshold || 10;
-    thresholdLastFetch = Date.now();
-  } catch {}
-  return cachedThreshold;
-}
+const getDipThreshold = makeSettingCache(
+  async () => { const s = await prisma.settings.findUnique({ where: { id: 1 } }); return s?.dipThreshold ?? 10; },
+  10,
+);
 
 export function getLatestObd(symbol) {
   return obdState.get(symbol)?.current || null;
@@ -153,9 +144,36 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
   }
 
   // Per-symbol check: only one OPEN trade per symbol at a time
-  const symbolOpenCount = await prisma.trade.count({ where: { status: 'OPEN', symbol: pair.tradeSymbol } });
-  if (symbolOpenCount > 0) {
-    logger.info(`[AutoTrade] Skipping — already have open trade on ${pair.tradeSymbol}`);
+  const existingTrade = await prisma.trade.findFirst({
+    where: { symbol: pair.tradeSymbol, status: 'OPEN' }
+  });
+
+  if (existingTrade) {
+    // TRADE-01: reverse signal — force-close existing position
+    const isReverseSignal = (existingTrade.side === 'BUY' && direction === 'SHORT') ||
+                            (existingTrade.side === 'SELL' && direction === 'LONG');
+    if (isReverseSignal) {
+      logger.info(
+        { symbol: pair.tradeSymbol, existingSide: existingTrade.side, newDirection: direction },
+        'auto-trade: reverse signal — closing existing position',
+      );
+      try {
+        // TODO: cancel open SL/TP orders before closing (cancelAllOpenOrders not yet implemented)
+        const closeSide = existingTrade.side === 'BUY' ? 'SELL' : 'BUY';
+        await placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity: existingTrade.quantity });
+        await prisma.trade.update({
+          where: { id: existingTrade.id },
+          data: { status: 'CLOSED', closedAt: new Date() },
+        });
+        sendTelegramNotification(
+          `🔄 Reverse signal: closed ${existingTrade.side} ${pair.tradeSymbol} at market`,
+          null,
+        ).catch(() => {});
+      } catch (err) {
+        logger.error({ err }, 'auto-trade: failed to close position on reverse signal');
+      }
+    }
+    // In both cases (reverse or same direction) — do not open a new position
     return;
   }
 
@@ -213,13 +231,33 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     takeProfit: suggestedTp || undefined,
   });
 
-  // If SL placement failed, do not create a Trade record — close the position immediately
+  // If SL placement failed — create Trade record first so userDataStream can track the position
   if (result.slFailed) {
     logger.error('Auto-trade aborted: SL failed, closing position immediately', { symbol: pair.tradeSymbol, orderId: result.orderId });
+
+    const slFailedTrade = await prisma.trade.create({
+      data: {
+        signalId,
+        symbol: pair.tradeSymbol,
+        side,
+        quantity,
+        price: result.price || entryPrice,
+        stopLoss: suggestedSl || null,
+        takeProfit: suggestedTp || null,
+        binanceOrderId: result.orderId,
+        status: 'OPEN',
+        slOrderFailed: true,
+      },
+    });
+
     const closeSide = side === 'BUY' ? 'SELL' : 'BUY';
     try {
       await placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity });
       logger.info('Position closed after SL failure', { symbol: pair.tradeSymbol });
+      await prisma.trade.update({
+        where: { id: slFailedTrade.id },
+        data: { status: 'CLOSED', closedAt: new Date() },
+      });
     } catch (closeErr) {
       logger.error('CRITICAL: failed to close position after SL failure — manual intervention required', {
         symbol: pair.tradeSymbol,
