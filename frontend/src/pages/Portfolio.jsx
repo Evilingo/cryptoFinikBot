@@ -30,6 +30,7 @@ export default function Portfolio() {
   const [botTrades, setBotTrades] = useState([]);
   const [loadingBotTrades, setLoadingBotTrades] = useState(true);
   const [closing, setClosing] = useState(null); // tradeId being closed
+  const [currentPrices, setCurrentPrices] = useState({}); // { BTCUSDT: 73900, ... }
 
   // Load initial data
   useEffect(() => {
@@ -85,6 +86,32 @@ export default function Portfolio() {
   }, []);
 
   useWebSocket(onWsMessage);
+
+  // Real-time price polling every 4s via Bybit public API (parallel per-symbol requests)
+  useEffect(() => {
+    const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'];
+    const fetchPrices = () => {
+      Promise.all(
+        symbols.map(sym =>
+          fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${sym}`)
+            .then(r => r.json())
+            .catch(() => null)
+        )
+      ).then(results => {
+        const prices = {};
+        results.forEach(data => {
+          if (data?.result?.list?.[0]) {
+            const t = data.result.list[0];
+            prices[t.symbol] = parseFloat(t.lastPrice);
+          }
+        });
+        if (Object.keys(prices).length > 0) setCurrentPrices(prices);
+      });
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   const cancelOrder = async (order) => {
     if (!window.confirm(`Cancel ${order.side} ${order.symbol} order?`)) return;
@@ -435,7 +462,7 @@ export default function Portfolio() {
             <div style={{ color: 'var(--text-3)', fontSize: 13 }}>No bot trades</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 860 }}>
                 <thead>
                   <tr style={{ color: 'var(--text-3)', textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.06em' }}>
                     <th style={{ textAlign: 'left', padding: '6px 8px 6px 0', fontWeight: 600 }}>Symbol</th>
@@ -443,6 +470,7 @@ export default function Portfolio() {
                     <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>Entry</th>
                     <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>SL</th>
                     <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>TP</th>
+                    <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>Current</th>
                     <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>Qty</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Status</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Protection</th>
@@ -464,12 +492,14 @@ export default function Portfolio() {
                     const hasSlOrder = sellOrders.some(o =>
                       o.stopOrderType === 'StopLoss' ||
                       o.stopOrderType === 'Stop' ||
-                      (o.orderType === 'Market' && o.triggerPrice > 0) ||
-                      (o.triggerPrice > 0 && o.price === 0)
+                      o.stopOrderType === 'OcoTriggerByStopLoss' ||
+                      (o.orderType === 'Market' && parseFloat(o.triggerPrice) > 0) ||
+                      (parseFloat(o.triggerPrice) > 0 && parseFloat(o.price) === 0)
                     );
                     const hasTpOrder = sellOrders.some(o =>
                       o.stopOrderType === 'TakeProfit' ||
-                      (o.orderType === 'Limit' && o.triggerPrice === 0)
+                      o.stopOrderType === 'OcoTriggerByTp' ||
+                      (o.orderType === 'Limit' && parseFloat(o.triggerPrice) === 0 && parseFloat(o.price) > 0)
                     );
 
                     return (
@@ -494,8 +524,18 @@ export default function Portfolio() {
                         <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--long)', fontSize: 12 }}>
                           {t.takeProfit > 0 ? `$${formatPrice(t.takeProfit)}` : '—'}
                         </td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--text-2)', fontSize: 12 }}>
+                          {currentPrices[t.symbol] ? `$${formatPrice(currentPrices[t.symbol])}` : '—'}
+                        </td>
                         <td style={{ padding: '10px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                          {t.quantity}
+                          {(() => {
+                            const qty = parseFloat(t.quantity);
+                            if (isNaN(qty)) return <span style={{ color: 'var(--text-3)' }}>—</span>;
+                            const price = currentPrices[t.symbol];
+                            const qtyStr = qty.toFixed(6);
+                            const usdVal = price ? `(≈$${(qty * price).toFixed(2)})` : '';
+                            return <>{qtyStr} <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{usdVal}</span></>;
+                          })()}
                         </td>
                         <td style={{ padding: '10px 8px' }}>
                           <span className={`badge ${t.status === 'OPEN' ? 'badge-pending' : t.status === 'CLOSING' ? 'badge-warn' : 'badge-win'}`}>

@@ -112,11 +112,35 @@ const MIN_NET_RR = 2.0;
 function validateSlTp(result, price, symbol = '', atr15m = null) {
   const { direction, suggestedSl, suggestedTp } = result;
 
-  if (direction === 'WAIT' || !suggestedSl) return result;
+  if (direction === 'WAIT') return result;
 
   const isLong = direction === 'LONG';
-  let effSl = suggestedSl;
-  let effTp = suggestedTp;
+
+  // SL отсутствует — ATR-fallback или force WAIT (аналогично null TP)
+  if (!suggestedSl) {
+    if (!atr15m?.value) {
+      logger.warn('suggestedSl is null and no ATR available, forcing WAIT', { symbol, direction, price, suggestedTp });
+      return { ...result, direction: 'WAIT', analysis: (result.analysis || '') + ' [Авто-WAIT: SL=null, ATR недоступен]' };
+    }
+    const slDist = 1.5 * atr15m.value;
+    const effSlFallback = Math.round((isLong ? price - slDist : price + slDist) * 100) / 100;
+    // WARNING-2: LONG ATR-fallback SL must stay positive
+    if (isLong && effSlFallback <= 0) {
+      logger.warn('ATR fallback produced non-positive SL for LONG, forcing WAIT', { symbol, direction, price, atr: atr15m.value, effSlFallback });
+      return { ...result, direction: 'WAIT', analysis: (result.analysis || '') + ' [Авто-WAIT: ATR-fallback SL <= 0]' };
+    }
+    logger.warn('suggestedSl is null, using ATR fallback for SL', {
+      symbol, direction, price, suggestedTp, atrSl: effSlFallback,
+    });
+    result = {
+      ...result,
+      suggestedSl: effSlFallback,
+      analysis: (result.analysis || '') + ` [SL=null → ATR-fallback: SL=${effSlFallback}]`,
+    };
+  }
+
+  let effSl = result.suggestedSl;
+  let effTp = result.suggestedTp;
 
   // TP отсутствует, но SL есть — ATR-fallback только для TP
   if (!effTp) {
