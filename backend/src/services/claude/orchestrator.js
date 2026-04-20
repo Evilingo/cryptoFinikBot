@@ -112,11 +112,34 @@ const MIN_NET_RR = 2.0;
 function validateSlTp(result, price, symbol = '', atr15m = null) {
   const { direction, suggestedSl, suggestedTp } = result;
 
-  if (direction === 'WAIT' || !suggestedSl || !suggestedTp) return result;
+  if (direction === 'WAIT' || !suggestedSl) return result;
 
   const isLong = direction === 'LONG';
   let effSl = suggestedSl;
   let effTp = suggestedTp;
+
+  // TP отсутствует, но SL есть — ATR-fallback только для TP
+  if (!effTp) {
+    if (!atr15m?.value) {
+      logger.warn('suggestedTp is null and no ATR available, forcing WAIT', { symbol, direction, price, suggestedSl });
+      return { ...result, direction: 'WAIT', analysis: (result.analysis || '') + ' [Авто-WAIT: TP=null, ATR недоступен]' };
+    }
+    const tpDist = 3.5 * atr15m.value;
+    effTp = Math.round((isLong ? price + tpDist : price - tpDist) * 100) / 100;
+    // BLOCKING-2: SHORT ATR-fallback guard — price - 3.5×ATR must stay positive
+    if (effTp <= 0) {
+      logger.warn('ATR fallback produced non-positive TP for SHORT, forcing WAIT', { symbol, direction, price, atr: atr15m.value, effTp });
+      return { ...result, direction: 'WAIT', analysis: (result.analysis || '') + ' [Авто-WAIT: ATR-fallback TP <= 0]' };
+    }
+    logger.warn('suggestedTp is null, using ATR fallback for TP', {
+      symbol, direction, price, suggestedSl, atrTp: effTp,
+    });
+    result = {
+      ...result,
+      suggestedTp: effTp,
+      analysis: (result.analysis || '') + ` [TP=null → ATR-fallback: TP=${effTp}]`,
+    };
+  }
 
   const slDist0 = isLong ? price - effSl : effSl - price;
   const tpDist0 = isLong ? effTp - price : price - effTp;
@@ -124,7 +147,7 @@ function validateSlTp(result, price, symbol = '', atr15m = null) {
   if (slDist0 <= 0 || tpDist0 <= 0) {
     if (!atr15m?.value) {
       logger.warn('Invalid SL/TP direction, forcing WAIT', { direction, price, suggestedSl, suggestedTp });
-      return { ...result, direction: 'WAIT', analysis: result.analysis + ' [Авто-WAIT: некорректные уровни SL/TP]' };
+      return { ...result, direction: 'WAIT', analysis: (result.analysis || '') + ' [Авто-WAIT: некорректные уровни SL/TP]' };
     }
     const slDist = 1.5 * atr15m.value;
     const tpDist = 3.5 * atr15m.value;
@@ -139,7 +162,7 @@ function validateSlTp(result, price, symbol = '', atr15m = null) {
       ...result,
       suggestedSl: effSl,
       suggestedTp: effTp,
-      analysis: result.analysis + ` [SL/TP заменены ATR-fallback: SL=${effSl}, TP=${effTp}]`,
+      analysis: (result.analysis || '') + ` [SL/TP заменены ATR-fallback: SL=${effSl}, TP=${effTp}]`,
     };
   }
 
@@ -159,7 +182,7 @@ function validateSlTp(result, price, symbol = '', atr15m = null) {
     return {
       ...result,
       direction: 'WAIT',
-      analysis: `${result.analysis} [Авто-WAIT: TP ${(tpPct * 100).toFixed(2)}% не покрывает комиссии 0.2% + минимум 0.4%]`,
+      analysis: `${result.analysis || ''} [Авто-WAIT: TP ${(tpPct * 100).toFixed(2)}% не покрывает комиссии 0.2% + минимум 0.4%]`,
     };
   }
 
@@ -183,7 +206,7 @@ function validateSlTp(result, price, symbol = '', atr15m = null) {
     return {
       ...result,
       suggestedTp: adjustedTp,
-      analysis: `${result.analysis} [TP скорректирован ${suggestedTp} → ${adjustedTp} для RR ≥ ${MIN_NET_RR} после комиссий]`,
+      analysis: `${result.analysis || ''} [TP скорректирован ${effTp} → ${adjustedTp} для RR ≥ ${MIN_NET_RR} после комиссий]`,
     };
   }
 
