@@ -330,22 +330,9 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
     marketUnit: 'baseCoin',
   };
 
-  if (stopLoss) body.stopLoss = formatNum(stopLoss, info.pricePrecision);
-  if (takeProfit) body.takeProfit = formatNum(takeProfit, info.pricePrecision);
-
-  let orderData;
-  let usedSeparateOrders = false;
-  try {
-    orderData = await privatePost('/v5/order/create', body);
-  } catch (err) {
-    if (!(stopLoss || takeProfit)) throw err;
-    // Inline TP/SL failed (classic non-UTA account) — place market entry first, then separate orders
-    logger.warn('Inline TP/SL failed (classic account?), placing market entry + separate TP/SL', { error: err.message, symbol });
-    const bodyNoTpSl = { category: 'spot', symbol, side: bybitSide, orderType: 'Market', qty: qtyStr, marketUnit: 'baseCoin' };
-    orderData = await privatePost('/v5/order/create', bodyNoTpSl);
-    usedSeparateOrders = true;
-  }
-
+  // Inline stopLoss/takeProfit on UTA spot market orders silently succeeds but does NOT
+  // create queryable stop orders — always use separate explicit orders instead.
+  const orderData = await privatePost('/v5/order/create', body);
   const orderId = orderData.result?.orderId;
   logger.info('Bybit market order placed', { symbol, side, orderId });
 
@@ -359,7 +346,7 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
   }
 
   let slFailed = false;
-  if (usedSeparateOrders) {
+  if (stopLoss || takeProfit) {
     slFailed = await placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, orderId, info);
   }
 
@@ -367,7 +354,7 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
     orderId: String(orderId),
     price: avgPrice,
     slFailed,
-    type: usedSeparateOrders ? 'MARKET+SEPARATE_TPSL' : (stopLoss || takeProfit) ? 'MARKET+TPSL' : 'MARKET',
+    type: (stopLoss || takeProfit) ? 'MARKET+SEPARATE_TPSL' : 'MARKET',
   };
 }
 
