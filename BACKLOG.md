@@ -592,6 +592,83 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
+## Раздел 9 — Full review v3 (2026-04-22, DEV+QA+TL агенты)
+
+Источник: параллельный аудит трёх агентов (DEV, QA, TL).
+
+---
+
+### BUG-29 — TRADE-02 guard не атомарен — два одновременных сигнала открывают обе позиции
+**Файл:** `backend/src/services/indicators/engine.js:147-286`
+**Приоритет:** HIGH
+**Проблема:** Pre-check (счёт OPEN trades) и `Trade.create` не обёрнуты в транзакцию. Два сигнала на один символ с интервалом ~50ms оба проходят pre-check (оба видят count=0), оба вызывают `placeOrder`, оба создают Trade. TRADE-02 post-check (строка 276) смягчает это, закрывая вторую позицию, но сам post-check тоже не атомарен — при высокой нагрузке оба могут пройти и его.
+**Исправление:** Добавить per-symbol advisory lock через `prisma.$transaction(SERIALIZABLE)`, или заменить post-check на DB unique constraint `(symbol, status='OPEN')` + catch uniqueness error → закрыть лишнюю позицию.
+
+---
+
+### BUG-30 — Нет fetch() timeout — зависший Bybit API вызов блокирует chain и может создать дубль ордера
+**Файл:** `backend/src/services/bybit/rest.js` (все `fetch()`)
+**Приоритет:** HIGH
+**Проблема:** Все вызовы к Bybit API (placeOrder, getSymbolInfo, getAccountBalance и т.д.) используют `fetch()` без `AbortController` timeout. Node.js по умолчанию не имеет таймаута на TCP соединение. При зависании >30 сек — frontend таймаутится и пользователь видит ошибку, но backend продолжает выполнение. Повторный запрос от пользователя создаст дублирующий ордер пока первый ещё выполняется.
+**Исправление:**
+```js
+const controller = new AbortController();
+const timer = setTimeout(() => controller.abort(), 10_000);
+const res = await fetch(url, { ..., signal: controller.signal });
+clearTimeout(timer);
+```
+Добавить в `privatePost` и `privateGet` функции в rest.js.
+
+---
+
+### BUG-31 — Нет reconciliation при старте сервера — orphaned OPEN trades после рестарта
+**Файлы:** `backend/src/server.js`, `backend/src/services/bybit/reconciliation.js`
+**Приоритет:** HIGH
+**Проблема:** При рестарте сервера Bybit WS не переотправляет исторические fill-события. Если fill пришёл пока сервер был недоступен — Trade навсегда остаётся OPEN в DB хотя позиция закрыта на бирже. Существующий reconciliation job запускается раз в 5 мин — этого достаточно для периодической сверки, но не для восстановления после рестарта.
+**Исправление:** В `server.js` при старте вызывать `reconcileOpenTrades()` один раз до начала WS подключений. Это гарантирует что стартуем с корректным состоянием DB.
+
+---
+
+### BUG-32 — tracker.js закрывает Signal по midPrice не зная об активных биржевых ордерах
+**Файлы:** `backend/src/services/signals/tracker.js:68-101`
+**Приоритет:** MEDIUM
+**Проблема:** tracker проверяет midPrice каждые 5 сек. Если currentPrice >= suggestedTp — выставляет outcome='WIN'. Но для сигналов с реальной Trade (SL/TP ордера живые на бирже) это неправильно: реальное закрытие ещё не произошло, tracker использует рыночную цену вместо цены исполнения ордера. Signal получает неточный outcomePrice/outcomePnl.
+**Исправление:** В tracker.js перед обновлением Signal проверять: если `signal.Trade` с `status='OPEN'` и `slOrderFailed=false` — пропускать итерацию (реальное закрытие придёт через userDataStream WS fill event).
+
+---
+
+### BUG-33 — hasSlOrder в Portfolio.jsx: условие `orderType='Market' && triggerPrice>0` требует верификации
+**Файл:** `frontend/src/pages/Portfolio.jsx:492-498`
+**Приоритет:** MEDIUM
+**Проблема:** Условие `(o.orderType === 'Market' && parseFloat(o.triggerPrice) > 0)` для определения SL-ордера написано исходя из того что Bybit возвращает `orderType='Market'` для StopOrder. Это нужно подтвердить на реальных данных — Bybit может возвращать другой `orderType` для untriggered stop orders (например, `'UNKNOWN'` до триггера). Если условие неверное — SL-ордера не будут распознаны, badge всегда будет "No orders".
+**Исправление:** Залогировать реальные поля (`orderType`, `stopOrderType`, `triggerPrice`) приходящих ордеров через WS и REST чтобы подтвердить/опровергнуть условие. Добавить логирование в `normalizePortfolioOrder` при `triggerPrice > 0`.
+
+---
+
+### BUG-34 — partial fills не отслеживаются — Trade.quantity и PnL некорректны при частичном исполнении
+**Файлы:** `backend/src/services/bybit/userDataStream.js:44`, `backend/src/services/bybit/reconciliation.js`
+**Приоритет:** LOW
+**Проблема:** Bybit может вернуть WS событие с `cumExecQty < qty` (partial fill). `handleOrderFill` проверяет только `orderStatus === 'Filled'` — при полном заполнении это правильно. Но если маркет-ордер заполнился частично (редко на spot, но возможно при недостаточной ликвидности) — `avgPrice` будет неполным, `Trade.quantity` не обновится до реального `cumExecQty`.
+**Исправление:** При partial fill entry: обновлять `Trade.quantity = cumExecQty` и `Trade.price = avgPrice` если `cumExecQty > 0`. Для partial fill exit: аналогично учитывать только исполненную часть.
+
+---
+
+### ARCH-05 — Отсутствует startup reconciliation — DB может быть рассинхронизирована с биржей после рестарта
+**Файлы:** `backend/src/server.js`, `backend/src/services/bybit/reconciliation.js`
+**Приоритет:** HIGH
+**Проблема:** Reconciliation job запускается каждые 5 минут но не при старте. За время downtime позиции могли закрыться на бирже, новые ордера появиться/исчезнуть. Первые 5 минут после рестарта система работает на потенциально устаревших данных.
+**Исправление:** Вызвать `reconcileOpenTrades()` в `server.js` при старте (до подключения WS потоков). См. BUG-31 — это один и тот же фикс.
+
+---
+
+### ARCH-06 — Нет circuit breaker для Bybit API — каскадные ошибки при outage биржи
+**Файлы:** `backend/src/services/bybit/rest.js`
+**Приоритет:** LOW
+**Проблема:** При временном outage Bybit API все pending запросы зависают, затем все одновременно падают с timeout. Engine продолжает генерировать сигналы, каждый пытается вызвать Bybit API, нагружая и без того перегруженный endpoint. Нет механизма "отключиться на N минут после X последовательных ошибок".
+**Исправление:** Простой счётчик ошибок: если 3+ consecutive ошибки Bybit API → pause autoTrade на 60 сек + Telegram алерт. Сброс при успешном запросе.
+
+---
+
 ### BUG-23 — TP ордер не размещается (или отменяется) тихо — нет Telegram алерта
 **Файл:** `backend/src/services/exchange/index.js` (или `bybit/rest.js` — placeOrder)
 **Приоритет:** HIGH
