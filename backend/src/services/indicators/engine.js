@@ -3,7 +3,7 @@ import { makeSettingCache } from '../../db/settingsCache.js';
 import { logger } from '../../config/logger.js';
 import { analyzeSignal } from '../claude/orchestrator.js';
 import { broadcast } from '../../ws/hub.js';
-import { getKlines, placeOrder, getAccountBalance } from '../exchange/index.js';
+import { getKlines, placeOrder, getAccountBalance, cancelAllOpenOrders } from '../exchange/index.js';
 import { runClaudePipeline } from '../signals/claudePipeline.js';
 import { sendTelegramNotification } from '../notifications/notifier.js';
 
@@ -158,7 +158,7 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
         'auto-trade: reverse signal — closing existing position',
       );
       try {
-        // TODO: cancel open SL/TP orders before closing (cancelAllOpenOrders not yet implemented)
+        await cancelAllOpenOrders(pair.tradeSymbol).catch(() => {});
         const closeSide = existingTrade.side === 'BUY' ? 'SELL' : 'BUY';
         await placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity: existingTrade.quantity });
         await prisma.trade.update({

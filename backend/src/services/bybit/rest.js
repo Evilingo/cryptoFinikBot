@@ -391,13 +391,15 @@ export async function getOrderHistory(symbol, limit = 50) {
 export async function getOpenOrders(symbol) {
   const params = { category: 'spot' };
   if (symbol) params.symbol = symbol;
-  const [regular, tpsl] = await Promise.allSettled([
+  const [regular, tpsl, stopOrders] = await Promise.allSettled([
     privateGet('/v5/order/realtime', params),
     privateGet('/v5/order/realtime', { ...params, orderFilter: 'tpSlOrder' }),
+    privateGet('/v5/order/realtime', { ...params, orderFilter: 'StopOrder' }),
   ]);
   const list = [
     ...(regular.status === 'fulfilled' ? regular.value.result?.list || [] : []),
     ...(tpsl.status === 'fulfilled' ? tpsl.value.result?.list || [] : []),
+    ...(stopOrders.status === 'fulfilled' ? stopOrders.value.result?.list || [] : []),
   ];
   return { result: { list } };
 }
