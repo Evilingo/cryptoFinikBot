@@ -69,15 +69,15 @@ export default function Portfolio() {
     }
     if (msg.type === 'PORTFOLIO_ORDER' && msg.order) {
       const o = msg.order;
-      if (o.orderStatus === 'New' || o.orderStatus === 'PartiallyFilled') {
-        // Add or update in open orders
+      if (o.orderStatus === 'New' || o.orderStatus === 'PartiallyFilled' || o.orderStatus === 'Untriggered') {
+        // Add or update in open orders (Untriggered = stop/conditional order waiting for trigger)
         setOpenOrders(prev => {
           const exists = prev.find(x => x.orderId === o.orderId);
           return exists
             ? prev.map(x => x.orderId === o.orderId ? o : x)
             : [o, ...prev];
         });
-      } else if (o.orderStatus === 'Filled' || o.orderStatus === 'Cancelled' || o.orderStatus === 'Rejected') {
+      } else if (o.orderStatus === 'Filled' || o.orderStatus === 'Cancelled' || o.orderStatus === 'Rejected' || o.orderStatus === 'Triggered') {
         // Remove from open, add to history
         setOpenOrders(prev => prev.filter(x => x.orderId !== o.orderId));
         setHistory(prev => [o, ...prev].slice(0, 100));
