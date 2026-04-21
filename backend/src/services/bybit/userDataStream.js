@@ -85,7 +85,14 @@ async function handleOrderFill(order) {
     const pairedLinkId = orderLinkId.startsWith('tp-')
       ? `sl-${orderLinkId.slice(3)}`
       : `tp-${orderLinkId.slice(3)}`;
-    cancelOrderByLinkId(symbol, pairedLinkId).catch(() => {});
+    cancelOrderByLinkId(symbol, pairedLinkId).catch(err => {
+      const msg = err?.message || '';
+      if (msg.includes('110001') || msg.includes('Order not found')) {
+        logger.debug('Paired order already filled/cancelled', { symbol, orderLinkId: pairedLinkId });
+      } else {
+        logger.warn('Failed to cancel paired order', { symbol, orderLinkId: pairedLinkId, error: msg });
+      }
+    });
   } else {
     // Inline TP/SL (stopOrderType-based) — no custom linkId, fall back to cancel-all
     cancelAllOpenOrders(symbol).catch(() => {});
@@ -171,6 +178,7 @@ function normalizePortfolioOrder(o) {
     stopLoss: parseFloat(o.stopLoss || 0),
     takeProfit: parseFloat(o.takeProfit || 0),
     orderStatus: o.orderStatus,
+    createdTime: parseInt(o.createdTime || 0),
     updatedTime: parseInt(o.updatedTime || 0),
   };
 }

@@ -611,7 +611,7 @@ function OrdersTable({ orders, onCancel, cancelling }) {
           {orders.map(o => {
             const base = o.symbol?.replace(/USDT$|USDC$/, '') || o.symbol;
             const isBuy = o.side === 'Buy';
-            const isOpen = o.orderStatus === 'New' || o.orderStatus === 'PartiallyFilled';
+            const isOpen = o.orderStatus === 'New' || o.orderStatus === 'PartiallyFilled' || o.orderStatus === 'Untriggered';
             return (
               <tr key={o.orderId} style={{ borderTop: '1px solid var(--line)' }}>
                 <td style={{ padding: '10px 8px 10px 0' }}>

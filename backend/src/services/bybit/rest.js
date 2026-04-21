@@ -396,11 +396,13 @@ export async function getOpenOrders(symbol) {
     privateGet('/v5/order/realtime', { ...params, orderFilter: 'tpSlOrder' }),
     privateGet('/v5/order/realtime', { ...params, orderFilter: 'StopOrder' }),
   ]);
-  const list = [
+  const raw = [
     ...(regular.status === 'fulfilled' ? regular.value.result?.list || [] : []),
     ...(tpsl.status === 'fulfilled' ? tpsl.value.result?.list || [] : []),
     ...(stopOrders.status === 'fulfilled' ? stopOrders.value.result?.list || [] : []),
   ];
+  const seen = new Set();
+  const list = raw.filter(o => { if (seen.has(o.orderId)) return false; seen.add(o.orderId); return true; });
   return { result: { list } };
 }
 

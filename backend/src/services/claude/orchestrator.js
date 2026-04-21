@@ -118,7 +118,7 @@ function validateSlTp(result, price, symbol = '', atr15m = null) {
 
   // SL отсутствует — ATR-fallback или force WAIT (аналогично null TP)
   if (!suggestedSl) {
-    if (!atr15m?.value) {
+    if (!atr15m?.value || atr15m.value <= 0) {
       logger.warn('suggestedSl is null and no ATR available, forcing WAIT', { symbol, direction, price, suggestedTp });
       return { ...result, direction: 'WAIT', analysis: (result.analysis || '') + ' [Авто-WAIT: SL=null, ATR недоступен]' };
     }
@@ -144,7 +144,7 @@ function validateSlTp(result, price, symbol = '', atr15m = null) {
 
   // TP отсутствует, но SL есть — ATR-fallback только для TP
   if (!effTp) {
-    if (!atr15m?.value) {
+    if (!atr15m?.value || atr15m.value <= 0) {
       logger.warn('suggestedTp is null and no ATR available, forcing WAIT', { symbol, direction, price, suggestedSl });
       return { ...result, direction: 'WAIT', analysis: (result.analysis || '') + ' [Авто-WAIT: TP=null, ATR недоступен]' };
     }

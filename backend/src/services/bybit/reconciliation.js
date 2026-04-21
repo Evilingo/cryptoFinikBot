@@ -46,9 +46,9 @@ export async function reconcileOpenTrades() {
         continue;
       }
 
-      const pnl = trade.side === 'BUY'
-        ? ((exitPrice - entryPrice) / entryPrice * 100)
-        : ((entryPrice - exitPrice) / entryPrice * 100);
+      const pnl = (trade.side === 'BUY'
+        ? ((exitPrice - entryPrice) / entryPrice)
+        : ((entryPrice - exitPrice) / entryPrice)) * 100 - 0.2;
 
       const roundedPnl = Math.round(pnl * 100) / 100;
       const outcome = roundedPnl > 0.1 ? 'WIN' : roundedPnl < -0.1 ? 'LOSS' : 'BREAKEVEN';

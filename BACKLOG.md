@@ -533,6 +533,65 @@ const sellVol = state.trades.reduce((s, t) => s + (t.isBuyerMaker ? t.vol : 0), 
 
 ---
 
+## Раздел 8 — Оптимизация затрат (cost efficiency)
+
+---
+
+### FEAT-01 — Пропускать Claude-анализ если по символу уже открыта сделка
+
+**Файлы:** `backend/src/services/indicators/engine.js` (+ `ofiEngine.js`)
+**Приоритет:** MEDIUM
+**Контекст:** Сейчас Claude-анализ запускается на каждый OBD/OFI сигнал, даже если по данному символу уже открыта Trade. Однако `executeAutoTrade` имеет guard `existingTrade → return` — реальный вход всё равно не произойдёт. Claude-токены тратятся впустую.
+**Единственная текущая польза от анализа при открытой позиции** — сигнал сохраняется в БД со всеми метаданными (RSI, ATR, direction, confidence), что полезно для сбора статистики и бэктестинга. Это реальная ценность пока данных мало.
+**Когда имеет смысл внедрить:** когда накоплено достаточно сигналов для бэктеста (>200-300 на символ) — ценность дополнительной статистики снижается, а экономия токенов растёт.
+**Предлагаемая реализация:**
+1. Добавить настройку `skipAnalysisOnOpenTrade: Boolean` в `Settings` (default: `false`)
+2. В `engine.js` перед `analyzeSignal()` / `runClaudePipeline()`: если `settings.skipAnalysisOnOpenTrade && openTradeExists` → пропустить Claude, не создавать Signal, логировать info
+3. Или более мягкий вариант: создавать Signal с `direction: 'SKIP'` без Claude-вызова — статистика сохраняется, токены не тратятся
+**Трейдофф:** вариант с `SKIP` не позволяет видеть "а что бы сказал Claude" при открытой позиции, но это ок для этапа production с достаточной статистикой.
+
+---
+
+### BUG-24 — orderLinkId suffix collision при orderId < 28 символов
+**Файлы:** `backend/src/services/bybit/rest.js:258`, `backend/src/services/bybit/userDataStream.js:101`
+**Приоритет:** MEDIUM
+**Проблема:** `placeSeparateTpSl` использует `entryOrderId.slice(-28)` как suffix orderLinkId. При поиске Trade в `handleOrderFill` используется `{ binanceOrderId: { endsWith: entrySuffix } }`. Если два orderId заканчиваются одинаково (теоретически), возможна коллизия — закроется не та сделка.
+**Исправление:** Изменить поиск с `endsWith` на точное совпадение. Для этого нужно убедиться что suffix всегда равен полному orderId (или использовать другой механизм привязки exit к entry).
+
+---
+
+### BUG-25 — Race condition двойного заполнения TP+SL одновременно
+**Файлы:** `backend/src/services/bybit/userDataStream.js:82-148`
+**Приоритет:** HIGH
+**Проблема:** TP и SL могут заполниться почти одновременно (например, при gap). Два `handleOrderFill` вызова запускаются параллельно, оба видят Trade.status='OPEN', оба пытаются закрыть Trade и обновить Signal. Текущий guard `{ outcome: null }` в `signal.updateMany` частично защищает Signal, но `trade.update` вызывается дважды без atomicity — второй вызов перезаписывает PnL первого.
+**Исправление:** Добавить промежуточный статус `CLOSING`: обновлять Trade через `updateMany({ where: { id, status: 'OPEN' }, data: { status: 'CLOSING' } })`, проверять `count === 0` → уже обрабатывается, выходить. Финально обновлять до `CLOSED`.
+
+---
+
+### BUG-26 — closeTrade застревает в CLOSING при разрыве WS
+**Файлы:** `frontend/src/pages/Portfolio.jsx:129-142`
+**Приоритет:** MEDIUM
+**Проблема:** Пользователь нажимает Close → frontend устанавливает status='CLOSING' → backend выставил market ордер → ордер заполнился → но WS разорвалось до прихода SIGNAL_OUTCOME события. Статус остаётся 'CLOSING' вечно (до ручного обновления страницы).
+**Исправление:** Добавить таймаут 10-15 сек в `closeTrade`: если статус не обновился до CLOSED — перезапросить `/trade` из API и обновить state. Или добавить кнопку "Refresh trades".
+
+---
+
+### BUG-27 — Fetch timeout отсутствует — зависший network call блокирует весь chain
+**Файлы:** `backend/src/services/bybit/rest.js` (все `fetch()` вызовы)
+**Приоритет:** HIGH
+**Проблема:** Все `fetch()` вызовы к Bybit API (placeOrder, getSymbolInfo, getAccountBalance и т.д.) не имеют AbortController timeout. При зависании сетевого соединения на 30+ сек — весь chain (placeOrder → placeSeparateTpSl → Trade.create) подвисает. Особо опасно: если frontend timeout 30s сработает раньше, пользователь видит ошибку, но backend продолжает выполнение и может разместить дублирующий ордер.
+**Исправление:** Добавить `AbortController` с таймаутом 10-15 сек в `privatePost`/`privateGet`. При AbortError — выбрасывать понятную ошибку вместо зависания.
+
+---
+
+### BUG-28 — tracker.js и userDataStream.js могут закрыть одну Trade одновременно
+**Файлы:** `backend/src/services/signals/tracker.js:68-101`, `backend/src/services/bybit/userDataStream.js:116-148`
+**Приоритет:** MEDIUM
+**Проблема:** tracker проверяет midPrice каждые 5 сек — если midPrice >= suggestedTp, он выставляет outcome='WIN' и обновляет Signal. Одновременно может прийти реальный WS fill event. Signal защищён guard `{ outcome: null }` в updateMany, поэтому двойного обновления Signal нет. Но Trade обновляется в обоих местах — если tracker успел первым, userDataStream обновит Trade с более точным exitPrice. Двух записей не будет, но логика немного рассогласована. Долгосрочно: tracker не должен закрывать Signal если для него уже есть активный Trade на бирже (SL/TP ещё висят).
+**Исправление:** В tracker.js перед обновлением Signal проверять: если для сигнала есть OPEN Trade с `slOrderFailed=false` — пропускать (реальное закрытие придёт через WS).
+
+---
+
 ### BUG-23 — TP ордер не размещается (или отменяется) тихо — нет Telegram алерта
 **Файл:** `backend/src/services/exchange/index.js` (или `bybit/rest.js` — placeOrder)
 **Приоритет:** HIGH
