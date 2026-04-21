@@ -156,6 +156,7 @@ function normalizePortfolioOrder(o) {
     orderType: o.orderType,
     stopOrderType: o.stopOrderType,
     price: parseFloat(o.price || 0),
+    triggerPrice: parseFloat(o.triggerPrice || 0),
     qty: parseFloat(o.qty || 0),
     cumExecQty: parseFloat(o.cumExecQty || 0),
     avgPrice: parseFloat(o.avgPrice || 0),
