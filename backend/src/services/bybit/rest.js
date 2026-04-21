@@ -408,6 +408,10 @@ export async function cancelOrder(symbol, orderId) {
   return privatePost('/v5/order/cancel', { category: 'spot', symbol, orderId });
 }
 
+export async function cancelOrderByLinkId(symbol, orderLinkId) {
+  return privatePost('/v5/order/cancel', { category: 'spot', symbol, orderLinkId });
+}
+
 export async function placeManualOrder({ symbol, side, orderType, qty, price, triggerPrice, stopLoss, takeProfit }) {
   const info = await getSymbolInfo(symbol);
   const bybitSide = side === 'BUY' ? 'Buy' : 'Sell';

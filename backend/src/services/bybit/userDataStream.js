@@ -12,7 +12,7 @@ import { decrypt } from '../../config/crypto.js';
 import { sendTelegramNotification } from '../notifications/notifier.js';
 import { broadcast } from '../../ws/hub.js';
 import { env } from '../../config/env.js';
-import { cancelAllOpenOrders } from './rest.js';
+import { cancelAllOpenOrders, cancelOrderByLinkId } from './rest.js';
 
 const BYBIT_PRIVATE_WS = env.bybitTestnet
   ? 'wss://stream-testnet.bybit.com/v5/private'
@@ -80,8 +80,16 @@ async function handleOrderFill(order) {
     return;
   }
 
-  // Exit order filled — cancel the remaining paired TP or SL order
-  cancelAllOpenOrders(symbol).catch(() => {});
+  // Cancel only the paired TP or SL order by orderLinkId to avoid wiping new trade's orders
+  if (orderLinkId && (orderLinkId.startsWith('tp-') || orderLinkId.startsWith('sl-'))) {
+    const pairedLinkId = orderLinkId.startsWith('tp-')
+      ? `sl-${orderLinkId.slice(3)}`
+      : `tp-${orderLinkId.slice(3)}`;
+    cancelOrderByLinkId(symbol, pairedLinkId).catch(() => {});
+  } else {
+    // Inline TP/SL (stopOrderType-based) — no custom linkId, fall back to cancel-all
+    cancelAllOpenOrders(symbol).catch(() => {});
+  }
 
   logger.info('Bybit order fill: exit', { symbol, stopOrderType, side, exitPrice: filledPrice });
 
