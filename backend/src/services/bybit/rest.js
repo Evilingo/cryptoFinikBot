@@ -258,6 +258,27 @@ async function placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit,
   const idPrefix = String(entryOrderId).slice(-28);
   const triggerDirection = exitSide === 'Sell' ? 2 : 1; // Sell SL: falls to; Buy SL: rises to
 
+  // TP first — Limit GTC locks the base asset. SL is a conditional StopOrder and does not
+  // require additional balance reservation, so placing TP first prevents the double-lock rejection.
+  if (takeProfit) {
+    try {
+      const r = await privatePost('/v5/order/create', {
+        category: 'spot', symbol, side: exitSide,
+        orderType: 'Limit', qty: qtyStr,
+        price: formatNum(takeProfit, info.pricePrecision),
+        timeInForce: 'GTC',
+        orderLinkId: `tp-${idPrefix}`,
+      });
+      logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit });
+    } catch (err) {
+      logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit });
+      sendTelegramNotification(
+        `⚠️ TP order FAILED for ${symbol} — position open without take-profit\nTP: ${takeProfit}\nError: ${err.message}`,
+        null,
+      ).catch(() => {});
+    }
+  }
+
   // SL — awaited, critical: position without stop-loss is unacceptable
   if (stopLoss) {
     try {
@@ -281,24 +302,6 @@ async function placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit,
       });
       return true; // slFailed
     }
-  }
-
-  // TP — fire-and-forget, not critical: position has SL protection, missing TP is acceptable
-  if (takeProfit) {
-    privatePost('/v5/order/create', {
-      category: 'spot', symbol, side: exitSide,
-      orderType: 'Limit', qty: qtyStr,
-      price: formatNum(takeProfit, info.pricePrecision),
-      timeInForce: 'GTC',
-      orderLinkId: `tp-${idPrefix}`,
-    }).then(r => logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit }))
-      .catch(err => {
-        logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit });
-        sendTelegramNotification(
-          `⚠️ TP order FAILED for ${symbol} — position open without take-profit\nTP: ${takeProfit}\nError: ${err.message}`,
-          null,
-        ).catch(() => {});
-      });
   }
 
   return false; // all ok
