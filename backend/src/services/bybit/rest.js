@@ -253,60 +253,6 @@ function formatNum(value, precision) {
   return (Math.floor(parseFloat(value) * factor) / factor).toFixed(precision);
 }
 
-// Returns true if SL placement failed (position is unprotected — caller must handle).
-async function placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, entryOrderId, info) {
-  const idPrefix = String(entryOrderId).slice(-28);
-  const triggerDirection = exitSide === 'Sell' ? 2 : 1; // Sell SL: falls to; Buy SL: rises to
-
-  // TP first — Limit GTC locks the base asset. SL is a conditional StopOrder and does not
-  // require additional balance reservation, so placing TP first prevents the double-lock rejection.
-  if (takeProfit) {
-    try {
-      const r = await privatePost('/v5/order/create', {
-        category: 'spot', symbol, side: exitSide,
-        orderType: 'Limit', qty: qtyStr,
-        price: formatNum(takeProfit, info.pricePrecision),
-        timeInForce: 'GTC',
-        orderLinkId: `tp-${idPrefix}`,
-      });
-      logger.info('TP limit order placed', { symbol, orderId: r.result?.orderId, tp: takeProfit });
-    } catch (err) {
-      logger.warn('TP limit order failed', { error: err.message, symbol, takeProfit });
-      sendTelegramNotification(
-        `⚠️ TP order FAILED for ${symbol} — position open without take-profit\nTP: ${takeProfit}\nError: ${err.message}`,
-        null,
-      ).catch(() => {});
-    }
-  }
-
-  // SL — awaited, critical: position without stop-loss is unacceptable
-  if (stopLoss) {
-    try {
-      const r = await privatePost('/v5/order/create', {
-        category: 'spot', symbol, side: exitSide,
-        orderType: 'Market', qty: qtyStr,
-        triggerPrice: formatNum(stopLoss, info.pricePrecision),
-        triggerBy: 'LastPrice', triggerDirection,
-        orderFilter: 'StopOrder',
-        orderLinkId: `sl-${idPrefix}`,
-      });
-      logger.info('SL stop order placed', { symbol, orderId: r.result?.orderId, sl: stopLoss });
-    } catch (err) {
-      const errMsg = err?.message || 'unknown error';
-      logger.error('SL stop order FAILED — position is unprotected', { symbol, stopLoss, error: errMsg });
-      sendTelegramNotification(
-        `🚨 SL order FAILED for ${symbol} — position open without stop-loss\nSL: ${stopLoss}\nError: ${errMsg}`,
-        null,
-      ).catch(() => {
-        logger.error(`SL FAILED for ${symbol} and Telegram unavailable`, { stopLoss, error: errMsg });
-      });
-      return true; // slFailed
-    }
-  }
-
-  return false; // all ok
-}
-
 export async function cancelAllOpenOrders(symbol) {
   const results = await Promise.allSettled([
     privatePost('/v5/order/cancel-all', { category: 'spot', symbol }),
@@ -322,7 +268,6 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
   const info = await getSymbolInfo(symbol);
   const qtyStr = formatNum(quantity, info.qtyPrecision);
   const bybitSide = side === 'BUY' ? 'Buy' : 'Sell';
-  const exitSide = bybitSide === 'Buy' ? 'Sell' : 'Buy';
 
   const body = {
     category: 'spot',
@@ -333,11 +278,23 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
     marketUnit: 'baseCoin',
   };
 
-  // Inline stopLoss/takeProfit on UTA spot market orders silently succeeds but does NOT
-  // create queryable stop orders — always use separate explicit orders instead.
+  // Pass TP/SL inline on the market order. Bybit UTA Spot creates linked OCO orders
+  // atomically — no double balance-lock issue that separate orders cause.
+  // The orders are queryable via orderFilter:'tpSlOrder' in getOpenOrders.
+  if (takeProfit) {
+    body.takeProfit = formatNum(takeProfit, info.pricePrecision);
+    body.tpTriggerBy = 'LastPrice';
+    body.tpOrderType = 'Limit';
+  }
+  if (stopLoss) {
+    body.stopLoss = formatNum(stopLoss, info.pricePrecision);
+    body.slTriggerBy = 'LastPrice';
+    body.slOrderType = 'Market';
+  }
+
   const orderData = await privatePost('/v5/order/create', body);
   const orderId = orderData.result?.orderId;
-  logger.info('Bybit market order placed', { symbol, side, orderId });
+  logger.info('Bybit market order placed', { symbol, side, orderId, tp: takeProfit, sl: stopLoss });
 
   let avgPrice = 0;
   try {
@@ -348,16 +305,11 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
     logger.warn('Failed to fetch Bybit order avgPrice', { error: err.message, orderId });
   }
 
-  let slFailed = false;
-  if (stopLoss || takeProfit) {
-    slFailed = await placeSeparateTpSl(symbol, exitSide, qtyStr, stopLoss, takeProfit, orderId, info);
-  }
-
   return {
     orderId: String(orderId),
     price: avgPrice,
-    slFailed,
-    type: (stopLoss || takeProfit) ? 'MARKET+SEPARATE_TPSL' : 'MARKET',
+    slFailed: false,
+    type: (stopLoss || takeProfit) ? 'MARKET+INLINE_TPSL' : 'MARKET',
   };
 }
 

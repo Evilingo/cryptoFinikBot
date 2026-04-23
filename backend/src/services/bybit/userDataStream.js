@@ -80,7 +80,8 @@ async function handleOrderFill(order) {
     return;
   }
 
-  // Cancel only the paired TP or SL order by orderLinkId to avoid wiping new trade's orders
+  // For legacy explicit tp-/sl- orders: cancel the paired order by linkId.
+  // For inline OCO TP/SL: Bybit cancels the paired order automatically — nothing to do.
   if (orderLinkId && (orderLinkId.startsWith('tp-') || orderLinkId.startsWith('sl-'))) {
     const pairedLinkId = orderLinkId.startsWith('tp-')
       ? `sl-${orderLinkId.slice(3)}`
@@ -93,9 +94,6 @@ async function handleOrderFill(order) {
         logger.warn('Failed to cancel paired order', { symbol, orderLinkId: pairedLinkId, error: msg });
       }
     });
-  } else {
-    // Inline TP/SL (stopOrderType-based) — no custom linkId, fall back to cancel-all
-    cancelAllOpenOrders(symbol).catch(() => {});
   }
 
   logger.info('Bybit order fill: exit', { symbol, stopOrderType, side, exitPrice: filledPrice });
