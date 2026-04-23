@@ -294,7 +294,7 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
 
   const orderData = await privatePost('/v5/order/create', body);
   const orderId = orderData.result?.orderId;
-  logger.info('Bybit market order placed', { symbol, side, orderId, tp: takeProfit, sl: stopLoss });
+  logger.info('Bybit market order placed', { symbol, side, orderId, tp: takeProfit, sl: stopLoss, resultFull: orderData.result });
 
   let avgPrice = 0;
   try {
@@ -346,16 +346,22 @@ export async function getOrderHistory(symbol, limit = 50) {
 export async function getOpenOrders(symbol) {
   const params = { category: 'spot' };
   if (symbol) params.symbol = symbol;
-  const [regular, tpsl, stopOrders] = await Promise.allSettled([
+  const [regular, tpsl, stopOrders, oco] = await Promise.allSettled([
     privateGet('/v5/order/realtime', params),
     privateGet('/v5/order/realtime', { ...params, orderFilter: 'tpSlOrder' }),
     privateGet('/v5/order/realtime', { ...params, orderFilter: 'StopOrder' }),
+    privateGet('/v5/order/realtime', { ...params, orderFilter: 'OcoOrder' }),
   ]);
   const raw = [
     ...(regular.status === 'fulfilled' ? regular.value.result?.list || [] : []),
     ...(tpsl.status === 'fulfilled' ? tpsl.value.result?.list || [] : []),
     ...(stopOrders.status === 'fulfilled' ? stopOrders.value.result?.list || [] : []),
+    ...(oco.status === 'fulfilled' ? oco.value.result?.list || [] : []),
   ];
+  if (oco.status === 'fulfilled') {
+    const ocoList = oco.value.result?.list || [];
+    if (ocoList.length > 0) logger.info('getOpenOrders OcoOrder results', { count: ocoList.length, orders: ocoList.map(o => ({ orderId: o.orderId, stopOrderType: o.stopOrderType, side: o.side, triggerPrice: o.triggerPrice, price: o.price })) });
+  }
   const seen = new Set();
   const list = raw.filter(o => { if (seen.has(o.orderId)) return false; seen.add(o.orderId); return true; });
   return { result: { list } };
