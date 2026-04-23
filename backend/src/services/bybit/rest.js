@@ -264,7 +264,7 @@ export async function cancelAllOpenOrders(symbol) {
   else logger.info('Cancelled all open orders', { symbol });
 }
 
-export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit }) {
+export async function placeOrder({ symbol, side, quantity }) {
   const info = await getSymbolInfo(symbol);
   const qtyStr = formatNum(quantity, info.qtyPrecision);
   const bybitSide = side === 'BUY' ? 'Buy' : 'Sell';
@@ -278,23 +278,9 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
     marketUnit: 'baseCoin',
   };
 
-  // Pass TP/SL inline on the market order. Bybit UTA Spot creates linked OCO orders
-  // atomically — no double balance-lock issue that separate orders cause.
-  // The orders are queryable via orderFilter:'tpSlOrder' in getOpenOrders.
-  if (takeProfit) {
-    body.takeProfit = formatNum(takeProfit, info.pricePrecision);
-    body.tpTriggerBy = 'LastPrice';
-    body.tpOrderType = 'Limit';
-  }
-  if (stopLoss) {
-    body.stopLoss = formatNum(stopLoss, info.pricePrecision);
-    body.slTriggerBy = 'LastPrice';
-    body.slOrderType = 'Market';
-  }
-
   const orderData = await privatePost('/v5/order/create', body);
   const orderId = orderData.result?.orderId;
-  logger.info('Bybit market order placed', { symbol, side, orderId, tp: takeProfit, sl: stopLoss, resultFull: orderData.result });
+  logger.info('Bybit market order placed', { symbol, side, orderId });
 
   let avgPrice = 0;
   try {
@@ -308,10 +294,59 @@ export async function placeOrder({ symbol, side, quantity, stopLoss, takeProfit 
   return {
     orderId: String(orderId),
     price: avgPrice,
-    slFailed: false,
-    type: (stopLoss || takeProfit) ? 'MARKET+INLINE_TPSL' : 'MARKET',
   };
 }
+
+/**
+ * Place explicit TP (Limit) and SL (StopMarket) orders separately.
+ * exitSide: 'Sell' or 'Buy' (Bybit case)
+ * Returns { tpOrderId, slOrderId } — null for orders not requested.
+ * Throws if any requested order failed.
+ */
+export async function placeTpSl(symbol, exitSide, stopLoss, takeProfit, info, quantity) {
+  const results = await Promise.allSettled([
+    takeProfit
+      ? privatePost('/v5/order/create', {
+          category: 'spot',
+          symbol,
+          side: exitSide,
+          orderType: 'Limit',
+          qty: formatNum(quantity, info.qtyPrecision),
+          price: formatNum(takeProfit, info.pricePrecision),
+          orderFilter: 'tpSlOrder',
+          triggerBy: 'LastPrice',
+        })
+      : Promise.resolve(null),
+    stopLoss
+      ? privatePost('/v5/order/create', {
+          category: 'spot',
+          symbol,
+          side: exitSide,
+          orderType: 'Market',
+          qty: formatNum(quantity, info.qtyPrecision),
+          triggerPrice: formatNum(stopLoss, info.pricePrecision),
+          triggerBy: 'LastPrice',
+          orderFilter: 'StopOrder',
+        })
+      : Promise.resolve(null),
+  ]);
+
+  const [tpResult, slResult] = results;
+
+  const errors = [];
+  if (takeProfit && tpResult.status === 'rejected') errors.push(`TP: ${tpResult.reason?.message}`);
+  if (stopLoss && slResult.status === 'rejected') errors.push(`SL: ${slResult.reason?.message}`);
+  if (errors.length > 0) throw new Error(`placeTpSl failed — ${errors.join('; ')}`);
+
+  const tpOrderId = tpResult.value?.result?.orderId ? String(tpResult.value.result.orderId) : null;
+  const slOrderId = slResult.value?.result?.orderId ? String(slResult.value.result.orderId) : null;
+
+  logger.info('placeTpSl orders placed', { symbol, exitSide, tpOrderId, slOrderId, tp: takeProfit, sl: stopLoss });
+
+  return { tpOrderId, slOrderId };
+}
+
+export { getSymbolInfo };
 
 /**
  * Query the current API key's permissions from Bybit.

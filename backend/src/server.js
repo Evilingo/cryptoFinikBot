@@ -29,6 +29,7 @@ import telegramRoutes from './routes/telegram.js';
 import portfolioRoutes from './routes/portfolio.js';
 import { setupTelegramWebhook } from './services/notifications/telegramBot.js';
 import { reconcileOpenTrades } from './services/bybit/reconciliation.js';
+import { startReconciliation, stopReconciliation } from './services/indicators/engine.js';
 
 validateEnv();
 
@@ -211,6 +212,9 @@ server.listen(env.port, async () => {
     );
   }, 5 * 60 * 1000);
 
+  // Phase 4: TP/SL reconciliation — ensures every OPEN trade has protection orders
+  startReconciliation();
+
   // ARCH-01: Cleanup job — marks signals stuck in "Analyzing..." as EXPIRED after 5 minutes
   cleanupStaleSignals().catch((err) =>
     logger.warn('[CleanupStaleSignals] Unexpected error on startup', { error: err.message })
@@ -235,6 +239,7 @@ async function shutdown(signal) {
   logger.info(`${signal} received, shutting down...`);
   stopOrderBookPolling(); // kept for graceful shutdown compatibility
   stopAllExchangeWs();
+  stopReconciliation();
   server.close();
   await prisma.$disconnect();
   process.exit(0);

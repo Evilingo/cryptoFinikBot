@@ -4,6 +4,7 @@ import { logger } from '../../config/logger.js';
 import { analyzeSignal } from '../claude/orchestrator.js';
 import { broadcast } from '../../ws/hub.js';
 import { getKlines, placeOrder, getAccountBalance, cancelAllOpenOrders } from '../exchange/index.js';
+import { placeTpSl, getOpenOrders, getSymbolInfo, getOrderHistory } from '../bybit/rest.js';
 import { runClaudePipeline } from '../signals/claudePipeline.js';
 import { sendTelegramNotification } from '../notifications/notifier.js';
 
@@ -132,6 +133,8 @@ async function analyzeWithClaude(signalId, pair, obd, midPrice, signalDirection)
   });
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
   if (!settings?.autoTrade) return;
@@ -143,9 +146,9 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     return;
   }
 
-  // Per-symbol check: only one OPEN trade per symbol at a time
+  // Per-symbol guard: only one OPEN/PENDING trade per symbol at a time
   const existingTrade = await prisma.trade.findFirst({
-    where: { symbol: pair.tradeSymbol, status: 'OPEN' }
+    where: { symbol: pair.tradeSymbol, status: { in: ['OPEN', 'PENDING'] } },
   });
 
   if (existingTrade) {
@@ -177,7 +180,7 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     return;
   }
 
-  // Check open trades limit
+  // Check open trades limit (count OPEN only, PENDING is reserved for current flow)
   const openCount = await prisma.trade.count({ where: { status: 'OPEN' } });
   if (openCount >= settings.maxOpenTrades) {
     logger.info('Auto-trade skipped: maxOpenTrades limit reached', { openCount, max: settings.maxOpenTrades });
@@ -214,105 +217,234 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     }
   }
 
-  logger.info('Executing auto-trade', {
-    symbol: pair.tradeSymbol,
-    side,
-    quantity: quantity.toFixed(6),
-    entryPrice,
-    sl: suggestedSl,
-    tp: suggestedTp,
-  });
-
-  const result = await placeOrder({
-    symbol: pair.tradeSymbol,
-    side,
-    quantity,
-    stopLoss: suggestedSl || undefined,
-    takeProfit: suggestedTp || undefined,
-  });
-
-  // If SL placement failed — create Trade record first so userDataStream can track the position
-  if (result.slFailed) {
-    logger.error('Auto-trade aborted: SL failed, closing position immediately', { symbol: pair.tradeSymbol, orderId: result.orderId });
-
-    const slFailedTrade = await prisma.trade.create({
-      data: {
-        signalId,
-        symbol: pair.tradeSymbol,
-        side,
-        quantity,
-        price: result.price || entryPrice,
-        stopLoss: suggestedSl || null,
-        takeProfit: suggestedTp || null,
-        binanceOrderId: result.orderId,
-        status: 'OPEN',
-        slOrderFailed: true,
-      },
-    });
-
-    const closeSide = side === 'BUY' ? 'SELL' : 'BUY';
-    try {
-      await placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity });
-      logger.info('Position closed after SL failure', { symbol: pair.tradeSymbol });
-      await prisma.trade.update({
-        where: { id: slFailedTrade.id },
-        data: { status: 'CLOSED', closedAt: new Date() },
-      });
-    } catch (closeErr) {
-      logger.error('CRITICAL: failed to close position after SL failure — manual intervention required', {
-        symbol: pair.tradeSymbol,
-        orderId: result.orderId,
-        error: closeErr.message,
-      });
-      sendTelegramNotification(
-        `🚨 КРИТИЧНО: не удалось закрыть позицию ${side} ${pair.tradeSymbol} после провала SL\nордер: ${result.orderId}\nошибка: ${closeErr.message}`,
-        null,
-      ).catch(() => {});
-    }
-    return;
-  }
-
-  // Final guard: re-check after placeOrder (network call) to prevent race condition (TRADE-02)
-  const postOrderOpenCount = await prisma.trade.count({ where: { status: 'OPEN', symbol: pair.tradeSymbol } });
-  if (postOrderOpenCount > 0) {
-    logger.error('[AutoTrade] Race condition detected — open trade already exists after placeOrder. Closing position.', {
-      symbol: pair.tradeSymbol, orderId: result.orderId,
-    });
-    const closeSide = side === 'BUY' ? 'SELL' : 'BUY';
-    placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity }).catch((err) =>
-      logger.error('Failed to close duplicate position', { symbol: pair.tradeSymbol, error: err.message })
-    );
-    return;
-  }
-
+  // ── Phase 1: Entry ──────────────────────────────────────────────────────────
+  // Save as PENDING before placing order (so position is always tracked)
   const trade = await prisma.trade.create({
     data: {
       signalId,
       symbol: pair.tradeSymbol,
       side,
       quantity,
-      price: result.price || entryPrice,
+      price: entryPrice,
       stopLoss: suggestedSl || null,
       takeProfit: suggestedTp || null,
-      binanceOrderId: result.orderId,
-      status: 'OPEN',
+      binanceOrderId: '0',  // placeholder — updated below
+      status: 'PENDING',
       slOrderFailed: false,
     },
   });
 
-  logger.info('Auto-trade executed and saved', {
+  logger.info('Auto-trade Phase 1: placing market order', {
     symbol: pair.tradeSymbol,
-    orderId: result.orderId,
-    price: result.price,
-    type: result.type,
+    side,
+    quantity: quantity.toFixed(6),
+    entryPrice,
     tradeId: trade.id,
   });
 
-  // Notify about auto-trade
+  let entryResult;
+  try {
+    entryResult = await placeOrder({ symbol: pair.tradeSymbol, side, quantity });
+  } catch (err) {
+    logger.error('Auto-trade Phase 1 failed: market order rejected', { symbol: pair.tradeSymbol, error: err.message, tradeId: trade.id });
+    await prisma.trade.update({ where: { id: trade.id }, data: { status: 'FAILED' } });
+    sendTelegramNotification(
+      `🚨 Авто-сделка провалилась: не удалось разместить ордер ${side} ${pair.tradeSymbol}\nОшибка: ${err.message}`,
+      null,
+    ).catch(() => {});
+    return;
+  }
+
+  // Poll for confirmed fill (up to 3 attempts, 1s apart)
+  let confirmedPrice = entryResult.price;
+  if (!confirmedPrice) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await sleep(1000);
+      try {
+        const histData = await getOrderHistory(pair.tradeSymbol, 5);
+        const order = (histData.result?.list || []).find((o) => o.orderId === entryResult.orderId);
+        if (order?.avgPrice) {
+          confirmedPrice = parseFloat(order.avgPrice);
+          break;
+        }
+      } catch (err) {
+        logger.warn('Phase 1 fill poll failed', { attempt, error: err.message });
+      }
+    }
+  }
+
+  const confirmedQty = quantity;  // quantity was what we sent; real fill qty from Bybit not yet in poll
+  await prisma.trade.update({
+    where: { id: trade.id },
+    data: {
+      binanceOrderId: entryResult.orderId,
+      price: confirmedPrice || entryPrice,
+      quantity: confirmedQty,
+    },
+  });
+
+  logger.info('Auto-trade Phase 1 done', { symbol: pair.tradeSymbol, orderId: entryResult.orderId, confirmedPrice, tradeId: trade.id });
+
+  // ── Phase 2: Protection ─────────────────────────────────────────────────────
+  // Если нет SL и TP — пропускаем Phase 2, сразу коммит
+  if (!suggestedSl && !suggestedTp) {
+    await prisma.trade.update({ where: { id: trade.id }, data: { status: 'OPEN', slOrderFailed: false } });
+    logger.info('Auto-trade OPEN (no SL/TP configured)', { symbol: pair.tradeSymbol, tradeId: trade.id });
+    sendTelegramNotification(
+      `✅ Авто-сделка открыта\n${side} ${pair.tradeSymbol}\nЦена входа: ${confirmedPrice || entryPrice}\n(без SL/TP)`,
+      null,
+    ).catch(() => {});
+    return;
+  }
+
+  const exitSide = side === 'BUY' ? 'Sell' : 'Buy';
+  const backoffs = [500, 1000, 2000];
+  let tpSlPlaced = false;
+  let symbolInfo;
+
+  try {
+    symbolInfo = await getSymbolInfo(pair.tradeSymbol);
+  } catch (err) {
+    logger.error('Phase 2: failed to get symbol info', { symbol: pair.tradeSymbol, error: err.message });
+    symbolInfo = { pricePrecision: 2, qtyPrecision: 6 };
+  }
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await placeTpSl(pair.tradeSymbol, exitSide, suggestedSl || null, suggestedTp || null, symbolInfo, confirmedQty);
+    } catch (err) {
+      logger.warn(`Phase 2: placeTpSl attempt ${attempt + 1} failed`, { symbol: pair.tradeSymbol, error: err.message });
+    }
+
+    await sleep(backoffs[attempt]);
+
+    try {
+      const ordersData = await getOpenOrders(pair.tradeSymbol);
+      const orders = ordersData.result?.list || [];
+      const hasSellSide = orders.some((o) => o.side === exitSide && Boolean(o.stopOrderType));
+      if (hasSellSide) {
+        tpSlPlaced = true;
+        logger.info(`Phase 2: TP/SL verified on exchange (attempt ${attempt + 1})`, { symbol: pair.tradeSymbol });
+        break;
+      }
+      logger.warn(`Phase 2: TP/SL not found after attempt ${attempt + 1}`, { symbol: pair.tradeSymbol, orderCount: orders.length });
+    } catch (err) {
+      logger.warn('Phase 2: getOpenOrders failed', { symbol: pair.tradeSymbol, error: err.message });
+    }
+  }
+
+  if (!tpSlPlaced) {
+    logger.error('Phase 2: TP/SL placement failed after 3 attempts — emergency close', { symbol: pair.tradeSymbol, tradeId: trade.id });
+    const closeSide = side === 'BUY' ? 'SELL' : 'BUY';
+    try {
+      await cancelAllOpenOrders(pair.tradeSymbol).catch(() => {});
+      await placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity: confirmedQty });
+      logger.info('Emergency close executed', { symbol: pair.tradeSymbol });
+    } catch (closeErr) {
+      logger.error('CRITICAL: emergency close failed — manual intervention required', {
+        symbol: pair.tradeSymbol,
+        tradeId: trade.id,
+        error: closeErr.message,
+      });
+    }
+    await prisma.trade.update({ where: { id: trade.id }, data: { status: 'FAILED', slOrderFailed: true } });
+    sendTelegramNotification(
+      `🚨 Позиция закрыта аварийно: SL не создан\n${side} ${pair.tradeSymbol}\nТрейд #${trade.id}`,
+      null,
+    ).catch(() => {});
+    return;
+  }
+
+  // ── Phase 3: Commit ──────────────────────────────────────────────────────────
+  await prisma.trade.update({
+    where: { id: trade.id },
+    data: { status: 'OPEN', slOrderFailed: false },
+  });
+
+  logger.info('Auto-trade Phase 3: trade OPEN with confirmed TP/SL', {
+    symbol: pair.tradeSymbol,
+    orderId: entryResult.orderId,
+    price: confirmedPrice || entryPrice,
+    tradeId: trade.id,
+  });
+
   sendTelegramNotification(
-    `🤖 Авто-сделка открыта\n${side} ${pair.tradeSymbol}\nЦена: ${result.price}\nSL: ${suggestedSl || 'нет'} | TP: ${suggestedTp || 'нет'}`,
+    `✅ Авто-сделка открыта\n${side} ${pair.tradeSymbol}\nЦена входа: ${confirmedPrice || entryPrice}\nSL: ${suggestedSl || 'нет'} | TP: ${suggestedTp || 'нет'}`,
     null,
   ).catch(() => {});
+}
+
+// ── Phase 4: Reconciliation ──────────────────────────────────────────────────
+let reconciliationTimer = null;
+
+async function reconcileTpSl() {
+  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+  if (!settings?.bybitApiKey || !settings?.bybitSecret) {
+    logger.debug('[TpSlReconciliation] Skipped: Bybit API keys not configured');
+    return;
+  }
+
+  const openTrades = await prisma.trade.findMany({ where: { status: 'OPEN' } });
+  if (openTrades.length === 0) return;
+
+  const AGE_LIMIT_MS = 55 * 60 * 1000; // 55 minutes
+  const now = Date.now();
+
+  for (const trade of openTrades) {
+    const ageMs = now - new Date(trade.createdAt).getTime();
+    if (ageMs >= AGE_LIMIT_MS) {
+      logger.debug('[TpSlReconciliation] Skipping old trade', { tradeId: trade.id, ageMin: Math.round(ageMs / 60000) });
+      continue;
+    }
+
+    try {
+      const ordersData = await getOpenOrders(trade.symbol);
+      const orders = ordersData.result?.list || [];
+      const exitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
+      const hasSellSide = orders.some((o) => o.side === exitSide && Boolean(o.stopOrderType));
+
+      if (hasSellSide) continue; // Protection orders are present
+
+      logger.warn('[TpSlReconciliation] Missing TP/SL for OPEN trade — attempting to recreate', { tradeId: trade.id, symbol: trade.symbol });
+
+      let symbolInfo;
+      try {
+        symbolInfo = await getSymbolInfo(trade.symbol);
+      } catch {
+        symbolInfo = { pricePrecision: 2, qtyPrecision: 6 };
+      }
+
+      try {
+        await placeTpSl(trade.symbol, exitSide, trade.stopLoss || null, trade.takeProfit || null, symbolInfo, trade.quantity);
+        logger.info('[TpSlReconciliation] TP/SL recreated', { tradeId: trade.id, symbol: trade.symbol });
+      } catch (placeErr) {
+        logger.error('[TpSlReconciliation] Failed to recreate TP/SL', { tradeId: trade.id, symbol: trade.symbol, error: placeErr.message });
+        await prisma.trade.update({ where: { id: trade.id }, data: { slOrderFailed: true } });
+        sendTelegramNotification(
+          `🚨 Нет защитных ордеров для ${trade.symbol} (трейд #${trade.id})\nSL/TP не удалось пересоздать: ${placeErr.message}`,
+          null,
+        ).catch(() => {});
+      }
+    } catch (err) {
+      logger.warn('[TpSlReconciliation] Error checking trade', { tradeId: trade.id, symbol: trade.symbol, error: err.message });
+    }
+  }
+}
+
+export function startReconciliation() {
+  if (reconciliationTimer) return;
+  reconciliationTimer = setInterval(() => {
+    reconcileTpSl().catch((err) => logger.warn('[TpSlReconciliation] Unexpected error', { error: err.message }));
+  }, 60_000);
+  logger.info('[TpSlReconciliation] Started (interval: 60s)');
+}
+
+export function stopReconciliation() {
+  if (reconciliationTimer) {
+    clearInterval(reconciliationTimer);
+    reconciliationTimer = null;
+    logger.info('[TpSlReconciliation] Stopped');
+  }
 }
 
 // OBD3/OBD4 are structural indicators — require 2× relative threshold
