@@ -321,13 +321,24 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     try {
       const ordersData = await getOpenOrders(pair.tradeSymbol);
       const orders = ordersData.result?.list || [];
-      const hasSellSide = orders.some((o) => o.side === exitSide && Boolean(o.stopOrderType));
-      if (hasSellSide) {
+      const exitOrders = orders.filter((o) => o.side === exitSide);
+      const isSlOrder = (o) =>
+        o.stopOrderType === 'StopLoss' ||
+        o.stopOrderType === 'Stop' ||
+        o.stopOrderType === 'OcoTriggerByStopLoss' ||
+        (parseFloat(o.triggerPrice || 0) > 0 && parseFloat(o.price || 0) === 0);
+      const isTpOrder = (o) =>
+        o.stopOrderType === 'TakeProfit' ||
+        o.stopOrderType === 'OcoTriggerByTp' ||
+        (o.orderType === 'Limit' && parseFloat(o.triggerPrice || 0) === 0 && parseFloat(o.price || 0) > 0);
+      const slPlaced = !suggestedSl || exitOrders.some(isSlOrder);
+      const tpPlaced = !suggestedTp || exitOrders.some(isTpOrder);
+      if (slPlaced && tpPlaced) {
         tpSlPlaced = true;
-        logger.info(`Phase 2: TP/SL verified on exchange (attempt ${attempt + 1})`, { symbol: pair.tradeSymbol });
+        logger.info(`Phase 2: TP/SL verified on exchange (attempt ${attempt + 1})`, { symbol: pair.tradeSymbol, slPlaced, tpPlaced });
         break;
       }
-      logger.warn(`Phase 2: TP/SL not found after attempt ${attempt + 1}`, { symbol: pair.tradeSymbol, orderCount: orders.length });
+      logger.warn(`Phase 2: TP/SL not found after attempt ${attempt + 1}`, { symbol: pair.tradeSymbol, orderCount: orders.length, slPlaced, tpPlaced });
     } catch (err) {
       logger.warn('Phase 2: getOpenOrders failed', { symbol: pair.tradeSymbol, error: err.message });
     }
@@ -401,9 +412,20 @@ async function reconcileTpSl() {
       const ordersData = await getOpenOrders(trade.symbol);
       const orders = ordersData.result?.list || [];
       const exitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
-      const hasSellSide = orders.some((o) => o.side === exitSide && Boolean(o.stopOrderType));
+      const exitOrders = orders.filter((o) => o.side === exitSide);
+      const isSlOrder = (o) =>
+        o.stopOrderType === 'StopLoss' ||
+        o.stopOrderType === 'Stop' ||
+        o.stopOrderType === 'OcoTriggerByStopLoss' ||
+        (parseFloat(o.triggerPrice || 0) > 0 && parseFloat(o.price || 0) === 0);
+      const isTpOrder = (o) =>
+        o.stopOrderType === 'TakeProfit' ||
+        o.stopOrderType === 'OcoTriggerByTp' ||
+        (o.orderType === 'Limit' && parseFloat(o.triggerPrice || 0) === 0 && parseFloat(o.price || 0) > 0);
+      const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
+      const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
 
-      if (hasSellSide) continue; // Protection orders are present
+      if (slPlaced && tpPlaced) continue; // Protection orders are present
 
       logger.warn('[TpSlReconciliation] Missing TP/SL for OPEN trade — attempting to recreate', { tradeId: trade.id, symbol: trade.symbol });
 
