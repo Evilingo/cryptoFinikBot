@@ -393,10 +393,6 @@ export async function getOpenOrders(symbol) {
     ...(stopOrders.status === 'fulfilled' ? stopOrders.value.result?.list || [] : []),
     ...(oco.status === 'fulfilled' ? oco.value.result?.list || [] : []),
   ];
-  if (oco.status === 'fulfilled') {
-    const ocoList = oco.value.result?.list || [];
-    if (ocoList.length > 0) logger.info('getOpenOrders OcoOrder results', { count: ocoList.length, orders: ocoList.map(o => ({ orderId: o.orderId, stopOrderType: o.stopOrderType, side: o.side, triggerPrice: o.triggerPrice, price: o.price })) });
-  }
   const seen = new Set();
   const list = raw.filter(o => { if (seen.has(o.orderId)) return false; seen.add(o.orderId); return true; });
   return { result: { list } };
