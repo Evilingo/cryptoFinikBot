@@ -596,7 +596,7 @@ export default function Portfolio() {
                                   ))}
                                 </>
                               )}
-                              {(!hasSlOrder || !hasTpOrder) && (t.stopLoss || t.takeProfit) && (
+                              {((t.stopLoss && !hasSlOrder) || (t.takeProfit && !hasTpOrder)) && (
                                 <button
                                   className="btn btn-ghost"
                                   style={{ fontSize: 10, padding: '2px 6px', color: 'var(--primary)', borderColor: 'var(--primary)' }}
