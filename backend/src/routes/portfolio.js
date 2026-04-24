@@ -12,6 +12,7 @@ import {
   placeTpSl,
   getSymbolInfo,
 } from '../services/bybit/rest.js';
+import { isSlOrder, isTpOrder } from '../services/bybit/orderMatchers.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -132,16 +133,6 @@ router.post('/trades/:id/fix-protection', async (req, res) => {
   const ordersData = await getOpenOrders(trade.symbol);
   const orders = ordersData.result?.list || [];
   const exitOrders = orders.filter(o => o.side === exitSide);
-
-  const isSlOrder = (o) =>
-    o.stopOrderType === 'StopLoss' ||
-    o.stopOrderType === 'Stop' ||
-    o.stopOrderType === 'OcoTriggerByStopLoss' ||
-    (parseFloat(o.triggerPrice || 0) > 0 && parseFloat(o.price || 0) === 0);
-  const isTpOrder = (o) =>
-    o.stopOrderType === 'TakeProfit' ||
-    o.stopOrderType === 'OcoTriggerByTp' ||
-    (o.orderType === 'Limit' && parseFloat(o.price || 0) > 0 && parseFloat(o.triggerPrice || 0) > 0);
 
   const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
   const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);

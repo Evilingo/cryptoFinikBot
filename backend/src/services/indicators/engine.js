@@ -5,6 +5,7 @@ import { analyzeSignal } from '../claude/orchestrator.js';
 import { broadcast } from '../../ws/hub.js';
 import { getKlines, placeOrder, getAccountBalance, cancelAllOpenOrders } from '../exchange/index.js';
 import { placeTpSl, getOpenOrders, getSymbolInfo, getOrderHistory } from '../bybit/rest.js';
+import { isSlOrder, isTpOrder } from '../bybit/orderMatchers.js';
 import { runClaudePipeline } from '../signals/claudePipeline.js';
 import { sendTelegramNotification } from '../notifications/notifier.js';
 
@@ -322,15 +323,6 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
       const ordersData = await getOpenOrders(pair.tradeSymbol);
       const orders = ordersData.result?.list || [];
       const exitOrders = orders.filter((o) => o.side === exitSide);
-      const isSlOrder = (o) =>
-        o.stopOrderType === 'StopLoss' ||
-        o.stopOrderType === 'Stop' ||
-        o.stopOrderType === 'OcoTriggerByStopLoss' ||
-        (parseFloat(o.triggerPrice || 0) > 0 && parseFloat(o.price || 0) === 0);
-      const isTpOrder = (o) =>
-        o.stopOrderType === 'TakeProfit' ||
-        o.stopOrderType === 'OcoTriggerByTp' ||
-        (o.orderType === 'Limit' && parseFloat(o.price || 0) > 0 && parseFloat(o.triggerPrice || 0) > 0);
       const slPlaced = !suggestedSl || exitOrders.some(isSlOrder);
       const tpPlaced = !suggestedTp || exitOrders.some(isTpOrder);
       if (slPlaced && tpPlaced) {
@@ -413,15 +405,6 @@ async function reconcileTpSl() {
       const orders = ordersData.result?.list || [];
       const exitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
       const exitOrders = orders.filter((o) => o.side === exitSide);
-      const isSlOrder = (o) =>
-        o.stopOrderType === 'StopLoss' ||
-        o.stopOrderType === 'Stop' ||
-        o.stopOrderType === 'OcoTriggerByStopLoss' ||
-        (parseFloat(o.triggerPrice || 0) > 0 && parseFloat(o.price || 0) === 0);
-      const isTpOrder = (o) =>
-        o.stopOrderType === 'TakeProfit' ||
-        o.stopOrderType === 'OcoTriggerByTp' ||
-        (o.orderType === 'Limit' && parseFloat(o.price || 0) > 0 && parseFloat(o.triggerPrice || 0) > 0);
       const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
       const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
 
