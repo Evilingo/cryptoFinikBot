@@ -330,7 +330,7 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
       const isTpOrder = (o) =>
         o.stopOrderType === 'TakeProfit' ||
         o.stopOrderType === 'OcoTriggerByTp' ||
-        (o.orderType === 'Limit' && parseFloat(o.triggerPrice || 0) === 0 && parseFloat(o.price || 0) > 0);
+        (o.orderType === 'Limit' && parseFloat(o.price || 0) > 0 && parseFloat(o.triggerPrice || 0) > 0);
       const slPlaced = !suggestedSl || exitOrders.some(isSlOrder);
       const tpPlaced = !suggestedTp || exitOrders.some(isTpOrder);
       if (slPlaced && tpPlaced) {
@@ -421,7 +421,7 @@ async function reconcileTpSl() {
       const isTpOrder = (o) =>
         o.stopOrderType === 'TakeProfit' ||
         o.stopOrderType === 'OcoTriggerByTp' ||
-        (o.orderType === 'Limit' && parseFloat(o.triggerPrice || 0) === 0 && parseFloat(o.price || 0) > 0);
+        (o.orderType === 'Limit' && parseFloat(o.price || 0) > 0 && parseFloat(o.triggerPrice || 0) > 0);
       const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
       const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
 

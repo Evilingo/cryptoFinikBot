@@ -313,6 +313,7 @@ export async function placeTpSl(symbol, exitSide, stopLoss, takeProfit, info, qu
           orderType: 'Limit',
           qty: formatNum(quantity, info.qtyPrecision),
           price: formatNum(takeProfit, info.pricePrecision),
+          triggerPrice: formatNum(takeProfit, info.pricePrecision),
           orderFilter: 'tpSlOrder',
           triggerBy: 'LastPrice',
         })

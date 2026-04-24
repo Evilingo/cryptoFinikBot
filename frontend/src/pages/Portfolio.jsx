@@ -527,7 +527,7 @@ export default function Portfolio() {
                     const hasTpOrder = sellOrders.some(o =>
                       o.stopOrderType === 'TakeProfit' ||
                       o.stopOrderType === 'OcoTriggerByTp' ||
-                      (o.orderType === 'Limit' && parseFloat(o.triggerPrice) === 0 && parseFloat(o.price) > 0)
+                      (o.orderType === 'Limit' && parseFloat(o.price) > 0 && parseFloat(o.triggerPrice) > 0)
                     );
 
                     const tp = new Intl.DateTimeFormat('ru-RU', {

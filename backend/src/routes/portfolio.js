@@ -141,7 +141,7 @@ router.post('/trades/:id/fix-protection', async (req, res) => {
   const isTpOrder = (o) =>
     o.stopOrderType === 'TakeProfit' ||
     o.stopOrderType === 'OcoTriggerByTp' ||
-    (o.orderType === 'Limit' && parseFloat(o.triggerPrice || 0) === 0 && parseFloat(o.price || 0) > 0);
+    (o.orderType === 'Limit' && parseFloat(o.price || 0) > 0 && parseFloat(o.triggerPrice || 0) > 0);
 
   const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
   const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
