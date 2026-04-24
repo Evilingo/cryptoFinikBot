@@ -145,6 +145,7 @@ async function handleOrderFill(order) {
     broadcast({
       type: 'SIGNAL_OUTCOME',
       signalId: trade.signalId,
+      tradeId: trade.id,
       symbol,
       outcome,
       pnl: roundedPnl,

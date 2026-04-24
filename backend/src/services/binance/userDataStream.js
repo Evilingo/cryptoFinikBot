@@ -83,6 +83,7 @@ async function handleExecutionReport(report) {
     broadcast({
       type: 'SIGNAL_OUTCOME',
       signalId: trade.signalId,
+      tradeId: trade.id,
       symbol,
       outcome,
       pnl: roundedPnl,

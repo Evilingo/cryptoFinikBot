@@ -81,6 +81,7 @@ export async function reconcileOpenTrades() {
         broadcast({
           type: 'SIGNAL_OUTCOME',
           signalId: trade.signalId,
+          tradeId: trade.id,
           symbol: trade.symbol,
           outcome,
           pnl: roundedPnl,

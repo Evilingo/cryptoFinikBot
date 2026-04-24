@@ -59,10 +59,10 @@ export default function Portfolio() {
     if (msg.type === 'PORTFOLIO_BALANCE' && Array.isArray(msg.coins)) {
       setBalance(msg.coins.filter(c => c.total > 0));
     }
-    // Bot trade closed via WS
-    if (msg.type === 'SIGNAL_OUTCOME' && msg.symbol) {
+    // Bot trade closed via WS — match by tradeId only (tracker.js sends SIGNAL_OUTCOME without tradeId for simulated outcomes)
+    if (msg.type === 'SIGNAL_OUTCOME' && msg.tradeId) {
       setBotTrades(prev => prev.map(t =>
-        t.symbol === msg.symbol && t.status === 'OPEN'
+        t.id === msg.tradeId
           ? { ...t, status: 'CLOSED', pnl: msg.pnl, closedAt: new Date().toISOString() }
           : t
       ));
@@ -465,7 +465,8 @@ export default function Portfolio() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 860 }}>
                 <thead>
                   <tr style={{ color: 'var(--text-3)', textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.06em' }}>
-                    <th style={{ textAlign: 'left', padding: '6px 8px 6px 0', fontWeight: 600 }}>Symbol</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px 6px 0', fontWeight: 600 }}>Time</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Symbol</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600 }}>Side</th>
                     <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>Entry</th>
                     <th style={{ textAlign: 'right', padding: '6px 8px', fontWeight: 600 }}>SL</th>
@@ -484,7 +485,18 @@ export default function Portfolio() {
                     const isBuy = t.side === 'BUY';
                     const isOpen = t.status === 'OPEN';
                     const needsProtection = t.status === 'OPEN' || t.status === 'CLOSING';
-                    const pnlColor = t.pnl > 0.1 ? 'var(--long)' : t.pnl < -0.1 ? 'var(--short)' : 'var(--text-3)';
+
+                    const curPrice = currentPrices[t.symbol];
+                    const isLive = (t.status === 'OPEN' || t.status === 'CLOSING') && curPrice && t.price > 0;
+                    const qtyNum = parseFloat(t.quantity) || 0;
+                    const livePct = isLive
+                      ? (isBuy ? (curPrice - t.price) / t.price : (t.price - curPrice) / t.price) * 100 - 0.2
+                      : null;
+                    const liveUsd = isLive
+                      ? (isBuy ? qtyNum * (curPrice - t.price) : qtyNum * (t.price - curPrice))
+                      : null;
+                    const pnlForColor = livePct != null ? livePct : t.pnl;
+                    const pnlColor = pnlForColor > 0.1 ? 'var(--long)' : pnlForColor < -0.1 ? 'var(--short)' : 'var(--text-3)';
 
                     const sellOrders = openOrders.filter(o =>
                       o.symbol === t.symbol && (o.side === 'Sell' || o.side === 'SELL')
@@ -502,9 +514,21 @@ export default function Portfolio() {
                       (o.orderType === 'Limit' && parseFloat(o.triggerPrice) === 0 && parseFloat(o.price) > 0)
                     );
 
+                    const tp = new Intl.DateTimeFormat('ru-RU', {
+                      timeZone: 'Europe/Moscow',
+                      day: '2-digit', month: '2-digit',
+                      hour: '2-digit', minute: '2-digit', second: '2-digit',
+                      hour12: false,
+                    }).formatToParts(new Date(t.createdAt));
+                    const tGet = type => tp.find(p => p.type === type)?.value || '';
+                    const timeStr = `${tGet('day')}.${tGet('month')} ${tGet('hour')}:${tGet('minute')}:${tGet('second')}`;
+
                     return (
                       <tr key={t.id} style={{ borderTop: '1px solid var(--line)', opacity: isOpen ? 1 : 0.7 }}>
-                        <td style={{ padding: '10px 8px 10px 0' }}>
+                        <td style={{ padding: '10px 8px 10px 0', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-3)' }}>
+                          {timeStr}
+                        </td>
+                        <td style={{ padding: '10px 8px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <CoinGlyph symbol={base} size={18}/>
                             <span style={{ fontWeight: 600 }}>{t.symbol}</span>
@@ -560,7 +584,9 @@ export default function Portfolio() {
                           ) : null}
                         </td>
                         <td style={{ padding: '10px 0 10px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: pnlColor, fontWeight: isOpen ? 400 : 600 }}>
-                          {t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}${t.pnl}%` : '—'}
+                          {livePct != null ? (
+                            <>{livePct >= 0 ? '+' : ''}{livePct.toFixed(2)}% <span style={{ color: 'var(--text-3)', fontSize: 11 }}>({liveUsd >= 0 ? '+' : ''}${liveUsd.toFixed(2)})</span></>
+                          ) : t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}${t.pnl}%` : '—'}
                         </td>
                         <td style={{ padding: '10px 0', textAlign: 'right' }}>
                           {isOpen && (
