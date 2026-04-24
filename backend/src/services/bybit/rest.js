@@ -420,8 +420,6 @@ export async function placeManualOrder({ symbol, side, orderType, qty, price, tr
   };
 
   if (price) body.price = formatNum(price, info.pricePrecision);
-  if (stopLoss) body.stopLoss = formatNum(stopLoss, info.pricePrecision);
-  if (takeProfit) body.takeProfit = formatNum(takeProfit, info.pricePrecision);
 
   // Stop-Limit: triggerPrice присутствует → это условный ордер, нужен orderFilter: 'StopOrder'
   // Без него Bybit проигнорирует triggerPrice и создаст обычный Limit-ордер
@@ -431,7 +429,24 @@ export async function placeManualOrder({ symbol, side, orderType, qty, price, tr
     body.orderFilter = 'StopOrder';
   }
 
+  // Bybit UTA Spot rejects inline stopLoss/takeProfit on Market orders (170130).
+  // Place SL/TP as separate orders after entry fills.
+  if (orderType === 'Limit') {
+    if (stopLoss) body.stopLoss = formatNum(stopLoss, info.pricePrecision);
+    if (takeProfit) body.takeProfit = formatNum(takeProfit, info.pricePrecision);
+  }
+
   const data = await privatePost('/v5/order/create', body);
+
+  if (orderType === 'Market' && (stopLoss || takeProfit)) {
+    const exitSide = bybitSide === 'Buy' ? 'Sell' : 'Buy';
+    try {
+      await placeTpSl(symbol, exitSide, stopLoss || null, takeProfit || null, info, qty);
+    } catch (err) {
+      logger.warn('placeManualOrder: separate TP/SL placement failed', { symbol, error: err.message });
+    }
+  }
+
   return data.result;
 }
 
