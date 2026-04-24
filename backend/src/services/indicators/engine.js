@@ -437,8 +437,15 @@ async function reconcileTpSl() {
       }
 
       try {
-        await placeTpSl(trade.symbol, exitSide, trade.stopLoss || null, trade.takeProfit || null, symbolInfo, trade.quantity);
-        logger.info('[TpSlReconciliation] TP/SL recreated', { tradeId: trade.id, symbol: trade.symbol });
+        await placeTpSl(
+          trade.symbol,
+          exitSide,
+          slPlaced ? null : (trade.stopLoss || null),
+          tpPlaced ? null : (trade.takeProfit || null),
+          symbolInfo,
+          trade.quantity,
+        );
+        logger.info('[TpSlReconciliation] TP/SL recreated', { tradeId: trade.id, symbol: trade.symbol, slPlaced, tpPlaced });
       } catch (placeErr) {
         logger.error('[TpSlReconciliation] Failed to recreate TP/SL', { tradeId: trade.id, symbol: trade.symbol, error: placeErr.message });
         await prisma.trade.update({ where: { id: trade.id }, data: { slOrderFailed: true } });

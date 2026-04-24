@@ -30,6 +30,7 @@ export default function Portfolio() {
   const [botTrades, setBotTrades] = useState([]);
   const [loadingBotTrades, setLoadingBotTrades] = useState(true);
   const [closing, setClosing] = useState(null); // tradeId being closed
+  const [fixing, setFixing] = useState(null); // tradeId being protection-fixed
   const [currentPrices, setCurrentPrices] = useState({}); // { BTCUSDT: 73900, ... }
 
   // Load initial data
@@ -123,6 +124,21 @@ export default function Portfolio() {
       alert(err.response?.data?.error || 'Cancel failed');
     } finally {
       setCancelling(null);
+    }
+  };
+
+  const fixProtection = async (trade) => {
+    setFixing(trade.id);
+    try {
+      const { data } = await api.post(`/portfolio/trades/${trade.id}/fix-protection`);
+      const added = [data.slAdded && 'SL', data.tpAdded && 'TP'].filter(Boolean).join(' + ');
+      showStatus(true, added ? `${trade.symbol}: ${added} added` : `${trade.symbol}: already protected`);
+      const [ordRes] = await Promise.allSettled([api.get('/portfolio/orders/open')]);
+      if (ordRes.status === 'fulfilled') setOpenOrders(ordRes.value.data || []);
+    } catch (err) {
+      showStatus(false, err.response?.data?.error || 'Fix protection failed');
+    } finally {
+      setFixing(null);
     }
   };
 
@@ -568,7 +584,7 @@ export default function Portfolio() {
                         </td>
                         <td style={{ padding: '10px 8px' }}>
                           {needsProtection ? (
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                               {sellOrders.length === 0 ? (
                                 <span className="badge badge-loss" title="No sell orders on exchange">⚠ No orders</span>
                               ) : (
@@ -579,6 +595,17 @@ export default function Portfolio() {
                                     <span key={i} className="badge badge-warn">{o.stopOrderType || o.orderType}</span>
                                   ))}
                                 </>
+                              )}
+                              {(!hasSlOrder || !hasTpOrder) && (t.stopLoss || t.takeProfit) && (
+                                <button
+                                  className="btn btn-ghost"
+                                  style={{ fontSize: 10, padding: '2px 6px', color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                                  onClick={() => fixProtection(t)}
+                                  disabled={fixing === t.id}
+                                  title="Place missing SL/TP on exchange"
+                                >
+                                  {fixing === t.id ? '…' : 'Fix'}
+                                </button>
                               )}
                             </div>
                           ) : null}

@@ -9,6 +9,8 @@ import {
   cancelOrder,
   cancelAllOpenOrders,
   placeManualOrder,
+  placeTpSl,
+  getSymbolInfo,
 } from '../services/bybit/rest.js';
 
 const router = Router();
@@ -113,6 +115,57 @@ router.post('/trades/:id/close', async (req, res) => {
   });
 
   res.json({ ok: true, orderId: result?.orderId });
+});
+
+// POST /api/portfolio/trades/:id/fix-protection
+// Places missing SL/TP on Bybit for an OPEN trade (manual override for reconcile).
+router.post('/trades/:id/fix-protection', async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid trade id' });
+
+  const trade = await prisma.trade.findUnique({ where: { id } });
+  if (!trade) return res.status(404).json({ error: 'Trade not found' });
+  if (trade.status !== 'OPEN') return res.status(400).json({ error: 'Trade is not open' });
+  if (!trade.stopLoss && !trade.takeProfit) return res.status(400).json({ error: 'Trade has no SL/TP configured' });
+
+  const exitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
+  const ordersData = await getOpenOrders(trade.symbol);
+  const orders = ordersData.result?.list || [];
+  const exitOrders = orders.filter(o => o.side === exitSide);
+
+  const isSlOrder = (o) =>
+    o.stopOrderType === 'StopLoss' ||
+    o.stopOrderType === 'Stop' ||
+    o.stopOrderType === 'OcoTriggerByStopLoss' ||
+    (parseFloat(o.triggerPrice || 0) > 0 && parseFloat(o.price || 0) === 0);
+  const isTpOrder = (o) =>
+    o.stopOrderType === 'TakeProfit' ||
+    o.stopOrderType === 'OcoTriggerByTp' ||
+    (o.orderType === 'Limit' && parseFloat(o.triggerPrice || 0) === 0 && parseFloat(o.price || 0) > 0);
+
+  const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
+  const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
+  if (slPlaced && tpPlaced) return res.json({ ok: true, message: 'Protection already present', slPlaced, tpPlaced });
+
+  let symbolInfo;
+  try { symbolInfo = await getSymbolInfo(trade.symbol); }
+  catch { symbolInfo = { pricePrecision: 2, qtyPrecision: 6 }; }
+
+  try {
+    await placeTpSl(
+      trade.symbol,
+      exitSide,
+      slPlaced ? null : trade.stopLoss,
+      tpPlaced ? null : trade.takeProfit,
+      symbolInfo,
+      trade.quantity,
+    );
+    logger.info('Fix protection: TP/SL placed', { tradeId: id, symbol: trade.symbol, slPlaced, tpPlaced });
+    res.json({ ok: true, slAdded: !slPlaced, tpAdded: !tpPlaced });
+  } catch (err) {
+    logger.error('Fix protection: placeTpSl failed', { tradeId: id, error: err.message });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // DELETE /api/portfolio/orders/:orderId?symbol=BTCUSDT
