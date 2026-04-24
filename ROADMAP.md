@@ -178,3 +178,114 @@
 - Если не удаётся получить свечи 5m/15m, Claude вызывается без этих данных — анализирует неполную картину
 - Сигнал проходит, но качество анализа снижается незаметно для пользователя
 - Исправление: при отсутствии данных старших ТФ добавлять явное предупреждение в поле `claudeAnalysis` и в лог
+
+---
+
+## Приоритет 13 — TP/SL placement hardening
+
+**Статус:** Не начато
+
+Ревью потока выставления TP/SL (коммиты 41120dc..966a84d, апрель 2026) выявил ряд проблем. Сгруппированы здесь по приоритету.
+
+### [HIGH] TP/SL-13.1: Partial success leak в `placeTpSl`
+
+**Файл:** `backend/src/services/bybit/rest.js:306` (`placeTpSl`), `backend/src/services/indicators/engine.js:310-345` (Phase 2 retry loop)
+
+**Проблема:**
+- `placeTpSl` использует `Promise.allSettled` для параллельного создания TP и SL.
+- Если одна половина успешна, а вторая отвергнута — функция бросает Error. Caller считает полную неудачу.
+- Успешно созданный ордер остаётся на бирже осиротевшим.
+- Phase 2 retry повторно вызывает `placeTpSl(sl, tp, ...)` с обоими уровнями → дубликат или balance-lock на уже размещённой стороне.
+
+**Решение:** Phase 2 retry-цикл должен перечитать `getOpenOrders` и передать `null` для уже размещённой стороны — как это уже сделано в `reconcileTpSl` (engine.js:439-447). Симметричный паттерн.
+
+**Альтернатива:** cancel orphaned order в catch-блоке `placeTpSl` перед throw. Но retry-aware передача в Phase 2 проще и консистентнее.
+
+---
+
+### [HIGH] TP/SL-13.2: `placeTpSl` после Market fill не учитывает fee
+
+**Файл:** `backend/src/services/bybit/rest.js:434-445` (`placeManualOrder`), `backend/src/services/indicators/engine.js:276` (`confirmedQty = quantity`)
+
+**Проблема:**
+- Market BUY 0.001 BTC → Bybit удерживает 0.1% fee с базы → фактический баланс после филла = 0.000999 BTC.
+- `placeTpSl` вызывается с исходным qty=0.001 → пытается зарезервировать 0.001 BTC для TP Limit sell → **Bybit 170131: Insufficient balance** (подтверждено в проде 2026-04-24, manual Place Order).
+- То же относится к auto-trade в engine.js — `confirmedQty` берётся из запроса, не из факта исполнения.
+
+**Решение:** после успешного Phase 1 (Market fill) читать реальный баланс базового актива через `getAccountBalance` (как это уже делается в close-trade — [portfolio.js:96-105](backend/src/routes/portfolio.js:96)), использовать `free` balance (с округлением вниз до `qtyPrecision`) как qty для `placeTpSl`.
+
+**Проявление:** на данный момент на проде блокирует manual Place Order с SL/TP. Auto-trade тоже аффектится, но менее заметно (3 живых трейда получили SL, TP появились через Fix-кнопку уже другим путём).
+
+---
+
+### [HIGH] TP/SL-13.3: `placeTpSl` не устанавливает `orderLinkId`
+
+**Файл:** `backend/src/services/bybit/rest.js:306` (`placeTpSl`), `backend/src/services/bybit/userDataStream.js:105-110` (handleOrderFill)
+
+**Проблема:**
+- `userDataStream.handleOrderFill` ожидает `orderLinkId.startsWith('tp-')` или `'sl-'` с суффиксом `entryOrderId` для точного маппинга exit-филла обратно к конкретному `Trade`.
+- `placeTpSl` ни TP, ни SL не снабжает `orderLinkId` — всегда срабатывает fallback "match by symbol" (userDataStream.js:114-119).
+- При `maxOpenTrades=1` (текущая настройка) это работает. При двух позициях на одном символе — closer попадает в случайно выбранный Trade, PnL и состояние теряются.
+
+**Решение:**
+- `placeTpSl(entryOrderId?)` — добавить опциональный параметр `entryOrderId` (сейчас в engine.js он уже известен как `entryResult.orderId`).
+- Формировать `orderLinkId: 'tp-' + entrySuffix` / `'sl-' + entrySuffix`, где `entrySuffix = entryOrderId.slice(-N)` (суффикс достаточной уникальности).
+- То же для `placeManualOrder`, если передаётся Market + TP/SL — использовать orderId Market-ордера.
+
+**Связанный баг:** Emergency close (13.4) использует `cancelAllOpenOrders(symbol)` — если entrySuffix знали бы, можно было cancel только paired по `orderLinkId`.
+
+---
+
+### [HIGH] TP/SL-13.4: Emergency close отменяет ВСЕ ордера на символе
+
+**Файл:** `backend/src/services/indicators/engine.js:351`
+
+**Проблема:**
+- При провале Phase 2 после 3 попыток вызывается `cancelAllOpenOrders(pair.tradeSymbol)` — отменит и ручные ордера пользователя, находящиеся на том же символе.
+- Если пользователь держит свой Buy Limit на BTC через Place Order (или Spot UI Bybit напрямую), эмердженси-клоуз его снесёт.
+
+**Решение:** после TP/SL-13.3 (orderLinkId) — заменить на `cancelOrderByLinkId` для каждой пары `tp-{suffix}`, `sl-{suffix}`. До того — отменять только ордера с side = exitSide (не bothSides), отфильтровав user-manual по нашему namespace orderLinkId, когда он будет.
+
+**Priority note:** менее срочно пока `maxOpenTrades=1` и Emergency close редок, но destructive — fix-up перед увеличением частоты автоторговли.
+
+---
+
+### [MEDIUM] TP/SL-13.5: Manual Limit + inline TP/SL — непроверенная гипотеза
+
+**Файл:** `backend/src/services/bybit/rest.js:426-430`
+
+**Проблема:** после фикса 6965b40 `placeManualOrder` разделяет TP/SL вне для Market, но сохраняет inline для Limit. Предположение, что Bybit UTA Spot принимает inline TP/SL только для Market-ордеров, а для Limit — работает. Не проверено в проде.
+
+**Решение:** тест — создать через UI Limit-ордер с SL/TP. Если получаем 170130 — унифицировать: всегда placeTpSl вне, никогда inline. Если работает — оставить как есть, добавить комментарий в код подтверждающий наблюдение.
+
+---
+
+### [MEDIUM] TP/SL-13.6: SHORT/SELL entry в проде не проверен
+
+**Проблема:** Все наблюдаемые auto-trade сделки были BUY. Логика для SELL-entry (exitSide='Buy', TP < entry, SL > entry) работает статически, но продакшн-данных нет.
+
+**Риски:**
+- `triggerBy: 'LastPrice'` на Bybit Spot для conditional Buy — возможно требует другой knob (например, `slTriggerType`).
+- Формулы PnL для SHORT в `userDataStream.js:123` и Portfolio.jsx:604 уже адаптированы, но не прогонялись.
+
+**Решение:** при следующей SHORT-позиции по сигналу — мониторинг в реальном времени, логи Bybit API на Phase 2 attempts. Если проблема — воспроизвести вручную через Place Order SELL и зафиксировать.
+
+---
+
+### [LOW] TP/SL-13.7: Magic constant AGE_LIMIT_MS без объяснения
+
+**Файл:** `backend/src/services/indicators/engine.js:401`
+
+**Проблема:** `const AGE_LIMIT_MS = 55 * 60 * 1000;` — 55 минут, смысл не документирован.
+
+**Решение:** однострочный комментарий: `// Skip trades older than 55min — they're either about to close via normal flow or stale and need manual review.`
+
+---
+
+### [LOW] TP/SL-13.8: Phase 2 backoff ждёт до verify, а не после отказа
+
+**Файл:** `backend/src/services/indicators/engine.js:312-319`
+
+**Проблема:** Phase 2 ждёт `backoffs[attempt]` ПОСЛЕ `placeTpSl` ДО `getOpenOrders`. Но `privatePost` синхронно бросает на 170xxx-ошибках — ждать до verify бессмысленно.
+
+**Решение:** если `placeTpSl` успешен — verify сразу; если бросил — тогда backoff. Экономия ~3.5с в emergency scenario. Опциональная оптимизация.
