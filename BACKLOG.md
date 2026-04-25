@@ -674,3 +674,19 @@ clearTimeout(timer);
 **Приоритет:** HIGH
 **Проблема:** При размещении OCO (SL + TP), если TP ордер не разместился (Bybit отклонил, или исключение после SL), — только `warn` в логах. Пользователь не знает. Позиция остаётся без потолка прибыли и автоматического закрытия по TP — её закроет только SL (убыток) или таймаут (по текущей цене). Аналогично TRADE-05 для SL — та же логика применима к TP.
 **Исправление:** После неудачного размещения TP ордера — `sendTelegramNotification` с явным предупреждением о позиции без TP. По аналогии с TRADE-05 (SL failure уже алертится).
+
+---
+
+### BUG-35 — `placeManualOrder` для Market SELL без guard по `bybitSide` — мутная семантика балансной проверки
+**Файл:** `backend/src/services/bybit/rest.js` (placeManualOrder, Market+SL/TP ветка)
+**Приоритет:** MEDIUM
+**Проблема:** Логика `Math.min(free, qty)` с `getAccountBalance(baseAsset)` вставлена в Market ветку без условия по направлению. Для BUY работает корректно (после покупки нужно залочить базу под TP/SL). Для SELL семантика мутная: после Market SELL базовая монета продана, exit-side='Buy' будет покупать обратно за USDT — балансовая проверка на `baseAsset` нерелевантна (Bybit чекает USDT для Buy). Не приводит к багу (Math.min с qty + fallback на исходный qty), но логика вводит в заблуждение и тратит API call впустую при SELL.
+**Исправление:** Обернуть весь блок в `if (bybitSide === 'Buy')` — для SELL оставить `realQty = qty` и пропустить getAccountBalance. Аналогично в `engine.js` Phase 2 уже есть `if (side === 'BUY')` гард — выровнять оба места.
+
+---
+
+### BUG-36 — `maxOpenTrades > 1` на одной базовой монете → race на free balance в Phase 2
+**Файлы:** `backend/src/services/indicators/engine.js` (Phase 2), `backend/src/services/bybit/rest.js` (placeManualOrder)
+**Приоритет:** MEDIUM (latent — пока `maxOpenTrades=1` неактивен)
+**Проблема:** Сейчас `maxOpenTrades=1` глобально, но если расширить до >1, и две сделки откроются параллельно на одной базовой монете (например, BTC из двух разных пар или повторный сигнал), в Phase 2 обоих трейдов `getAccountBalance().free` будет видеть только не-залоченный остаток. Один из трейдов может получить `free < qty` → fallback к `qty` → 170131. Второй в это же время — то же самое.
+**Исправление:** Mutex per baseAsset (in-memory `Map<baseAsset, Promise>`) вокруг секции `getAccountBalance + placeTpSl`. Альтернатива: семафор/очередь по символу. Перед увеличением `maxOpenTrades` — обязательно сделать.
