@@ -222,85 +222,6 @@ export default function Portfolio() {
       </div>
 
       <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 24 }}>
-        {/* Balance section */}
-        <div className="settings-section">
-          <h3>Holdings</h3>
-          <p className="subtitle">Spot wallet · free &amp; locked balances</p>
-
-          {loadingBalance ? (
-            <div style={{ color: 'var(--text-3)', fontSize: 13 }}>Loading...</div>
-          ) : balance.length === 0 ? (
-            <div style={{ color: 'var(--text-3)', fontSize: 13 }}>No assets found</div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ color: 'var(--text-3)', textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.06em' }}>
-                  <th style={{ textAlign: 'left', padding: '6px 0', fontWeight: 600 }}>Asset</th>
-                  <th style={{ textAlign: 'right', padding: '6px 0', fontWeight: 600 }}>Free</th>
-                  <th style={{ textAlign: 'right', padding: '6px 0', fontWeight: 600 }}>Locked</th>
-                  <th style={{ textAlign: 'right', padding: '6px 0', fontWeight: 600 }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {balance.map(c => (
-                  <tr key={c.asset} style={{ borderTop: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 0' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <CoinGlyph symbol={c.asset} size={20} />
-                        <span style={{ fontWeight: 600 }}>{c.asset}</span>
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{c.free.toFixed(6)}</td>
-                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', color: c.locked > 0 ? 'var(--text-2)' : 'var(--text-3)' }}>
-                      {c.locked.toFixed(6)}
-                    </td>
-                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{c.total.toFixed(6)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        {/* Orders section */}
-        <div className="settings-section">
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
-            {['orders', 'history'].map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
-                  fontSize: 14, fontWeight: 600,
-                  color: tab === t ? 'var(--text-1)' : 'var(--text-3)',
-                  borderBottom: tab === t ? '2px solid var(--primary)' : '2px solid transparent',
-                }}
-              >
-                {t === 'orders' ? `Open Orders (${openOrders.length})` : `History (${history.length})`}
-              </button>
-            ))}
-          </div>
-
-          {tab === 'orders' && (
-            loadingOrders ? (
-              <div style={{ color: 'var(--text-3)', fontSize: 13 }}>Loading...</div>
-            ) : openOrders.length === 0 ? (
-              <div style={{ color: 'var(--text-3)', fontSize: 13 }}>No open orders</div>
-            ) : (
-              <OrdersTable orders={openOrders} onCancel={cancelOrder} cancelling={cancelling} />
-            )
-          )}
-
-          {tab === 'history' && (
-            history.length === 0 ? (
-              <div style={{ color: 'var(--text-3)', fontSize: 13 }}>No history</div>
-            ) : (
-              <OrdersTable orders={history} onCancel={null} cancelling={null} />
-            )
-          )}
-        </div>
-
         {/* Place Order section */}
         <div className="settings-section">
           <h3>Place Order</h3>
@@ -633,6 +554,85 @@ export default function Portfolio() {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+
+        {/* Orders section */}
+        <div className="settings-section">
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+            {['orders', 'history'].map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
+                  fontSize: 14, fontWeight: 600,
+                  color: tab === t ? 'var(--text-1)' : 'var(--text-3)',
+                  borderBottom: tab === t ? '2px solid var(--primary)' : '2px solid transparent',
+                }}
+              >
+                {t === 'orders' ? `Open Orders (${openOrders.length})` : `History (${history.length})`}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'orders' && (
+            loadingOrders ? (
+              <div style={{ color: 'var(--text-3)', fontSize: 13 }}>Loading...</div>
+            ) : openOrders.length === 0 ? (
+              <div style={{ color: 'var(--text-3)', fontSize: 13 }}>No open orders</div>
+            ) : (
+              <OrdersTable orders={openOrders} onCancel={cancelOrder} cancelling={cancelling} />
+            )
+          )}
+
+          {tab === 'history' && (
+            history.length === 0 ? (
+              <div style={{ color: 'var(--text-3)', fontSize: 13 }}>No history</div>
+            ) : (
+              <OrdersTable orders={history} onCancel={null} cancelling={null} />
+            )
+          )}
+        </div>
+
+        {/* Balance section */}
+        <div className="settings-section">
+          <h3>Holdings</h3>
+          <p className="subtitle">Spot wallet · free &amp; locked balances</p>
+
+          {loadingBalance ? (
+            <div style={{ color: 'var(--text-3)', fontSize: 13 }}>Loading...</div>
+          ) : balance.length === 0 ? (
+            <div style={{ color: 'var(--text-3)', fontSize: 13 }}>No assets found</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ color: 'var(--text-3)', textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.06em' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 0', fontWeight: 600 }}>Asset</th>
+                  <th style={{ textAlign: 'right', padding: '6px 0', fontWeight: 600 }}>Free</th>
+                  <th style={{ textAlign: 'right', padding: '6px 0', fontWeight: 600 }}>Locked</th>
+                  <th style={{ textAlign: 'right', padding: '6px 0', fontWeight: 600 }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {balance.map(c => (
+                  <tr key={c.asset} style={{ borderTop: '1px solid var(--line)' }}>
+                    <td style={{ padding: '10px 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <CoinGlyph symbol={c.asset} size={20} />
+                        <span style={{ fontWeight: 600 }}>{c.asset}</span>
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{c.free.toFixed(6)}</td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', color: c.locked > 0 ? 'var(--text-2)' : 'var(--text-3)' }}>
+                      {c.locked.toFixed(6)}
+                    </td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{c.total.toFixed(6)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>
