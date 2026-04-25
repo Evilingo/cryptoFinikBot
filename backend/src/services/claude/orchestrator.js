@@ -241,10 +241,14 @@ export async function analyzeOfiSignal(pair, currentPrice, ofiDirection, ofiRati
   if (!anthropic) {
     return { direction: ofiDirection, confidence: null, analysis: 'Claude not configured', suggestedSl: null, suggestedTp: null };
   }
-  const [systemPrompt, { trend5m, trend15m, atr15m }] = await Promise.all([
+  const [systemPrompt, { trend5m, trend15m, atr15m }, candles] = await Promise.all([
     getOfiSystemPrompt(),
     fetchHigherTimeframes(pair.monitorSymbol),
+    getKlines(pair.monitorSymbol, pair.timeframe || '1m', 20).catch(() => []),
   ]);
+
+  const tech = candles.length ? calcTechnicals(candles) : {};
+  const techSection = formatTechnicals(tech);
 
   const atr15mLine = atr15m
     ? `ATR(14) на 15m: ${atr15m.value} (${atr15m.pct}% от цены)`
@@ -255,6 +259,7 @@ export async function analyzeOfiSignal(pair, currentPrice, ofiDirection, ofiRati
 OFI: ${ofiDirection}, ratio ${ofiRatio}%
 
 Тренд: ${formatHigherTf(trend5m, trend15m)}
+${techSection}
 ${atr15mLine}`;
 
   logger.info('Calling Claude for OFI signal analysis', {
@@ -262,6 +267,9 @@ ${atr15mLine}`;
     price: currentPrice,
     ofiDirection,
     ofiRatio,
+    rsi: tech.rsi,
+    trend5m: trend5m?.direction,
+    trend15m: trend15m?.direction,
   });
 
   const text = await callClaude(systemPrompt, userMessage);
@@ -275,7 +283,15 @@ ${atr15mLine}`;
     return { direction: 'WAIT', confidence: 0, analysis: text, suggestedSl: null, suggestedTp: null };
   }
 
-  return validateSlTp(parsed, currentPrice, pair.monitorSymbol, atr15m);
+  const validated = validateSlTp(parsed, currentPrice, pair.monitorSymbol, atr15m);
+  return {
+    ...validated,
+    rsi: tech.rsi ?? null,
+    trend5m: trend5m?.direction ?? null,
+    trend15m: trend15m?.direction ?? null,
+    atr: atr15m?.value ?? null,
+    atrPct: atr15m?.pct ?? null,
+  };
 }
 
 export async function analyzeSignal(pair, obd, candles, currentPrice) {
