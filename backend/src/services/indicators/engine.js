@@ -256,21 +256,28 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     return;
   }
 
-  // Poll for confirmed fill (up to 3 attempts, 1s apart)
+  // Poll for confirmed fill (up to 3 attempts, 1s apart). Capture both avgPrice
+  // and cumExecQty/cumExecFee so Phase 2 has the real filled base qty (Bybit
+  // wallet propagation is async; cumExec* is deterministic per-order).
   let confirmedPrice = entryResult.price;
-  if (!confirmedPrice) {
+  let confirmedFilledQty = 0;
+  let confirmedFee = 0;
+  if (!confirmedPrice || !confirmedFilledQty) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       await sleep(1000);
       try {
         const histData = await getOrderHistory(pair.tradeSymbol, 5);
         const order = (histData.result?.list || []).find((o) => o.orderId === entryResult.orderId);
-        if (order?.avgPrice) {
-          confirmedPrice = parseFloat(order.avgPrice);
-          break;
-        }
+        if (order?.avgPrice) confirmedPrice = parseFloat(order.avgPrice);
+        if (order?.cumExecQty) confirmedFilledQty = parseFloat(order.cumExecQty);
+        if (order?.cumExecFee) confirmedFee = parseFloat(order.cumExecFee);
+        if (confirmedPrice && confirmedFilledQty > 0) break;
       } catch (err) {
         logger.warn('Phase 1 fill poll failed', { attempt, error: err.message });
       }
+    }
+    if (side === 'BUY' && confirmedFilledQty === 0) {
+      logger.warn('Phase 1: cumExecQty polling exhausted, Phase 2 will use gross qty (170131 risk)', { symbol: pair.tradeSymbol, orderId: entryResult.orderId });
     }
   }
 
@@ -311,23 +318,15 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
   }
 
   // BUY-entry: Market BUY deducts ~0.1% fee from base asset (Bybit 170131).
-  // free is full walletBalance, not delta — clamp to confirmedQty to avoid reserving prior holdings.
-  // SELL-entry: SHORT-close model differs — leave confirmedQty (task 13.6).
+  // Use cumExecQty - cumExecFee from Phase 1 polling (deterministic, no wallet lag).
+  // SELL-entry: fee in quote, doesn't affect base qty — leave confirmedQty (task 13.6).
+  // Fallback: if polling failed (cumExecQty=0), use gross confirmedQty.
   let tpSlQty = confirmedQty;
-  if (side === 'BUY') {
-    const baseAsset = pair.tradeSymbol.replace(/USDT$|USDC$/, '');
-    try {
-      const coins = await getAccountBalance();
-      const coin = coins.find((c) => c.asset === baseAsset);
-      const free = parseFloat(coin?.free || coin?.total || 0);
-      if (free > 0) {
-        const factor = Math.pow(10, symbolInfo.qtyPrecision);
-        const floored = Math.floor(Math.min(free, confirmedQty) * factor) / factor;
-        if (floored > 0) tpSlQty = floored;
-      }
-    } catch (err) {
-      logger.warn('Phase 2: failed to fetch balance, using confirmedQty', { symbol: pair.tradeSymbol, error: err.message });
-    }
+  if (side === 'BUY' && confirmedFilledQty > 0) {
+    const netQty = confirmedFilledQty - confirmedFee;
+    const factor = Math.pow(10, symbolInfo.qtyPrecision);
+    const floored = Math.floor(netQty * factor) / factor;
+    if (floored > 0) tpSlQty = floored;
   }
 
   for (let attempt = 0; attempt < 3; attempt++) {

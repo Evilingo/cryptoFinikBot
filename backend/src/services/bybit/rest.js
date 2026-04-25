@@ -441,22 +441,33 @@ export async function placeManualOrder({ symbol, side, orderType, qty, price, tr
 
   if (orderType === 'Market' && (stopLoss || takeProfit)) {
     const exitSide = bybitSide === 'Buy' ? 'Sell' : 'Buy';
-    // Use min(free, qty) — Market BUY deducts ~0.1% fee from base asset (Bybit 170131).
-    // free is full walletBalance, not delta — clamp to qty to avoid reserving prior holdings.
-    const baseAsset = symbol.replace(/USDT$|USDC$/, '');
+    const orderId = data.result?.orderId;
     let realQty = qty;
-    try {
-      const coins = await getAccountBalance();
-      const coin = coins.find((c) => c.asset === baseAsset);
-      const free = parseFloat(coin?.free || coin?.total || 0);
-      if (free > 0) {
-        const factor = Math.pow(10, info.qtyPrecision);
-        const floored = Math.floor(Math.min(free, qty) * factor) / factor;
-        if (floored > 0) realQty = floored;
+
+    // Poll order for actual filled qty (cumExecQty - cumExecFee).
+    // Bybit fill propagation is async ~100-500ms; up to 4×500ms (2s ceiling).
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        const histData = await privateGet('/v5/order/history', { category: 'spot', orderId });
+        const order = histData.result?.list?.[0];
+        const cumExecQty = parseFloat(order?.cumExecQty || 0);
+        const cumExecFee = parseFloat(order?.cumExecFee || 0);
+        if (cumExecQty > 0) {
+          // BUY: fee in base; SELL: fee in quote (irrelevant to base qty).
+          const netQty = bybitSide === 'Buy' ? cumExecQty - cumExecFee : cumExecQty;
+          const factor = Math.pow(10, info.qtyPrecision);
+          const floored = Math.floor(netQty * factor) / factor;
+          if (floored > 0) { realQty = floored; break; }
+        }
+      } catch (err) {
+        logger.warn('placeManualOrder: fill poll failed', { orderId, attempt, error: err.message });
       }
-    } catch (err) {
-      logger.warn('placeManualOrder: failed to fetch balance, using original qty', { symbol, error: err.message });
     }
+    if (realQty === qty) {
+      logger.warn('placeManualOrder: cumExecQty polling exhausted, using gross qty (170131 risk)', { orderId, symbol });
+    }
+
     try {
       await placeTpSl(symbol, exitSide, stopLoss || null, takeProfit || null, info, realQty);
     } catch (err) {
