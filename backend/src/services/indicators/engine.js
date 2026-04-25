@@ -310,9 +310,29 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     symbolInfo = { pricePrecision: 2, qtyPrecision: 6 };
   }
 
+  // BUY-entry: Market BUY deducts ~0.1% fee from base asset (Bybit 170131).
+  // free is full walletBalance, not delta — clamp to confirmedQty to avoid reserving prior holdings.
+  // SELL-entry: SHORT-close model differs — leave confirmedQty (task 13.6).
+  let tpSlQty = confirmedQty;
+  if (side === 'BUY') {
+    const baseAsset = pair.tradeSymbol.replace(/USDT$|USDC$/, '');
+    try {
+      const coins = await getAccountBalance();
+      const coin = coins.find((c) => c.asset === baseAsset);
+      const free = parseFloat(coin?.free || coin?.total || 0);
+      if (free > 0) {
+        const factor = Math.pow(10, symbolInfo.qtyPrecision);
+        const floored = Math.floor(Math.min(free, confirmedQty) * factor) / factor;
+        if (floored > 0) tpSlQty = floored;
+      }
+    } catch (err) {
+      logger.warn('Phase 2: failed to fetch balance, using confirmedQty', { symbol: pair.tradeSymbol, error: err.message });
+    }
+  }
+
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await placeTpSl(pair.tradeSymbol, exitSide, suggestedSl || null, suggestedTp || null, symbolInfo, confirmedQty);
+      await placeTpSl(pair.tradeSymbol, exitSide, suggestedSl || null, suggestedTp || null, symbolInfo, tpSlQty);
     } catch (err) {
       logger.warn(`Phase 2: placeTpSl attempt ${attempt + 1} failed`, { symbol: pair.tradeSymbol, error: err.message });
     }

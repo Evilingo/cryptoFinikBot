@@ -441,8 +441,24 @@ export async function placeManualOrder({ symbol, side, orderType, qty, price, tr
 
   if (orderType === 'Market' && (stopLoss || takeProfit)) {
     const exitSide = bybitSide === 'Buy' ? 'Sell' : 'Buy';
+    // Use min(free, qty) — Market BUY deducts ~0.1% fee from base asset (Bybit 170131).
+    // free is full walletBalance, not delta — clamp to qty to avoid reserving prior holdings.
+    const baseAsset = symbol.replace(/USDT$|USDC$/, '');
+    let realQty = qty;
     try {
-      await placeTpSl(symbol, exitSide, stopLoss || null, takeProfit || null, info, qty);
+      const coins = await getAccountBalance();
+      const coin = coins.find((c) => c.asset === baseAsset);
+      const free = parseFloat(coin?.free || coin?.total || 0);
+      if (free > 0) {
+        const factor = Math.pow(10, info.qtyPrecision);
+        const floored = Math.floor(Math.min(free, qty) * factor) / factor;
+        if (floored > 0) realQty = floored;
+      }
+    } catch (err) {
+      logger.warn('placeManualOrder: failed to fetch balance, using original qty', { symbol, error: err.message });
+    }
+    try {
+      await placeTpSl(symbol, exitSide, stopLoss || null, takeProfit || null, info, realQty);
     } catch (err) {
       logger.warn('placeManualOrder: separate TP/SL placement failed', { symbol, error: err.message });
     }
