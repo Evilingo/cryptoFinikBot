@@ -468,10 +468,19 @@ export async function placeManualOrder({ symbol, side, orderType, qty, price, tr
       logger.warn('placeManualOrder: cumExecQty polling exhausted, using gross qty (170131 risk)', { orderId, symbol });
     }
 
-    try {
-      await placeTpSl(symbol, exitSide, stopLoss || null, takeProfit || null, info, realQty);
-    } catch (err) {
-      logger.warn('placeManualOrder: separate TP/SL placement failed', { symbol, error: err.message });
+    // Retry with shrink on 170131 — handles wallet propagation lag and fee mode mismatches
+    const factor = Math.pow(10, info.qtyPrecision);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await placeTpSl(symbol, exitSide, stopLoss || null, takeProfit || null, info, realQty);
+        break;
+      } catch (err) {
+        logger.warn(`placeManualOrder: placeTpSl attempt ${attempt + 1} failed`, { symbol, qty: realQty, error: err.message });
+        if (attempt === 2 || !err.message?.includes('170131')) break;
+        await new Promise((r) => setTimeout(r, 1500));
+        realQty = Math.floor(realQty * 0.999 * factor) / factor;
+        logger.warn(`placeManualOrder: 170131 — shrinking qty and retrying`, { symbol, newQty: realQty });
+      }
     }
   }
 

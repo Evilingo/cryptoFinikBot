@@ -333,7 +333,13 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     try {
       await placeTpSl(pair.tradeSymbol, exitSide, suggestedSl || null, suggestedTp || null, symbolInfo, tpSlQty);
     } catch (err) {
-      logger.warn(`Phase 2: placeTpSl attempt ${attempt + 1} failed`, { symbol: pair.tradeSymbol, error: err.message });
+      logger.warn(`Phase 2: placeTpSl attempt ${attempt + 1} failed`, { symbol: pair.tradeSymbol, qty: tpSlQty, error: err.message });
+      // 170131 = insufficient balance (wallet propagation lag or fee mode mismatch) — shrink for next attempt
+      if (err.message?.includes('170131') && side === 'BUY') {
+        const factor = Math.pow(10, symbolInfo.qtyPrecision);
+        tpSlQty = Math.floor(tpSlQty * 0.999 * factor) / factor;
+        logger.warn('Phase 2: 170131 — shrinking tpSlQty for next attempt', { symbol: pair.tradeSymbol, newQty: tpSlQty });
+      }
     }
 
     await sleep(backoffs[attempt]);
