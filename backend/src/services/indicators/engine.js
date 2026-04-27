@@ -3,8 +3,8 @@ import { makeSettingCache } from '../../db/settingsCache.js';
 import { logger } from '../../config/logger.js';
 import { analyzeSignal } from '../claude/orchestrator.js';
 import { broadcast } from '../../ws/hub.js';
-import { getKlines, placeOrder, getAccountBalance, cancelAllOpenOrders } from '../exchange/index.js';
-import { placeTpSl, getOpenOrders, getSymbolInfo, getOrderHistory } from '../bybit/rest.js';
+import { getKlines, placeOrder, getAccountBalance } from '../exchange/index.js';
+import { placeTpSl, getOpenOrders, getSymbolInfo, getOrderHistory, cancelExitProtection } from '../bybit/rest.js';
 import { isSlOrder, isTpOrder } from '../bybit/orderMatchers.js';
 import { runClaudePipeline } from '../signals/claudePipeline.js';
 import { sendTelegramNotification } from '../notifications/notifier.js';
@@ -162,7 +162,8 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
         'auto-trade: reverse signal — closing existing position',
       );
       try {
-        await cancelAllOpenOrders(pair.tradeSymbol).catch(() => {});
+        const oldExitSide = existingTrade.side === 'BUY' ? 'Sell' : 'Buy';
+        await cancelExitProtection(pair.tradeSymbol, oldExitSide).catch(() => {});
         const closeSide = existingTrade.side === 'BUY' ? 'SELL' : 'BUY';
         await placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity: existingTrade.quantity });
         await prisma.trade.update({
@@ -365,7 +366,7 @@ export async function executeAutoTrade(signalId, pair, analysis, entryPrice) {
     logger.error('Phase 2: TP/SL placement failed after 3 attempts — emergency close', { symbol: pair.tradeSymbol, tradeId: trade.id });
     const closeSide = side === 'BUY' ? 'SELL' : 'BUY';
     try {
-      await cancelAllOpenOrders(pair.tradeSymbol).catch(() => {});
+      await cancelExitProtection(pair.tradeSymbol, exitSide).catch(() => {});
       await placeOrder({ symbol: pair.tradeSymbol, side: closeSide, quantity: confirmedQty });
       logger.info('Emergency close executed', { symbol: pair.tradeSymbol });
     } catch (closeErr) {

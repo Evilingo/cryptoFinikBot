@@ -685,6 +685,15 @@ clearTimeout(timer);
 
 ---
 
+### BUG-37 — cancelExitProtection ловит manual Stop-Market юзера через isSlOrder
+**Файлы:** `backend/src/services/bybit/rest.js` (cancelExitProtection), `backend/src/services/bybit/orderMatchers.js` (isSlOrder)
+**Приоритет:** LOW (future improvement, не регрессия — `cancelAllOpenOrders` сносил тоже)
+**Проблема:** После BUG-13.4 fix `cancelExitProtection(symbol, exitSide)` использует `isSlOrder` predicate (`triggerPrice>0 && price===0`), который матчит любой Stop-Market — включая ручные SL ордера юзера на той же exit-side. Пользователь, поставивший вручную свой Stop-Market на тот же exit-side что и наша protection, увидит, что бот отменяет его ордер при reverse-сигнале / close trade / Phase 2 emergency. TP-предикат строже (требует `orderType==='Limit'` + price + triggerPrice), там риск ниже.
+**Исправление:** Тегировать наши protection-ордера через `orderLinkId` префикс (`tp-`/`sl-` уже используется для inline TP/SL — расширить на classic separate orders) и матчить `cancelExitProtection` по prefix вместо isSlOrder/isTpOrder. Полная изоляция от user-orders.
+**Связано:** BUG-13.4 (cancel exit-only) — наследует ограничение от исходной задачи; QA notice от 2026-04-24.
+
+---
+
 ### BUG-36 — `maxOpenTrades > 1` на одной базовой монете → race на free balance в Phase 2
 **Файлы:** `backend/src/services/indicators/engine.js` (Phase 2), `backend/src/services/bybit/rest.js` (placeManualOrder)
 **Приоритет:** MEDIUM (latent — пока `maxOpenTrades=1` неактивен)

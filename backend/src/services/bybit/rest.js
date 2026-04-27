@@ -4,6 +4,7 @@ import { decrypt } from '../../config/crypto.js';
 import { logger } from '../../config/logger.js';
 import { env } from '../../config/env.js';
 import { sendTelegramNotification } from '../notifications/notifier.js';
+import { isSlOrder, isTpOrder } from './orderMatchers.js';
 
 const BASE_URL = env.bybitTestnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
 // Market data is always fetched from production — testnet has synthetic/flat prices
@@ -262,6 +263,33 @@ export async function cancelAllOpenOrders(symbol) {
   const errs = results.filter(r => r.status === 'rejected').map(r => r.reason?.message);
   if (errs.length) logger.warn('cancelAllOpenOrders partial failure', { symbol, errs });
   else logger.info('Cancelled all open orders', { symbol });
+}
+
+/**
+ * Cancel only protection orders (SL + TP) matching the given exit side.
+ * Uses isSlOrder/isTpOrder predicates. User's manual orders untouched.
+ */
+export async function cancelExitProtection(symbol, exitSide) {
+  const ordersData = await getOpenOrders(symbol);
+  const orders = ordersData.result?.list || [];
+  const targets = orders.filter((o) =>
+    o.side === exitSide && (isSlOrder(o) || isTpOrder(o))
+  );
+
+  if (targets.length === 0) return { cancelled: 0 };
+
+  const results = await Promise.allSettled(
+    targets.map((o) => cancelOrder(symbol, o.orderId))
+  );
+
+  const succeeded = results.filter(r => r.status === 'fulfilled').length;
+  const failed = targets.length - succeeded;
+  if (failed > 0) {
+    logger.warn('cancelExitProtection: some cancels failed', { symbol, exitSide, succeeded, failed });
+  } else {
+    logger.info('cancelExitProtection: cancelled all targets', { symbol, exitSide, cancelled: succeeded });
+  }
+  return { cancelled: succeeded };
 }
 
 export async function placeOrder({ symbol, side, quantity }) {

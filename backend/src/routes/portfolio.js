@@ -7,7 +7,7 @@ import {
   getOpenOrders,
   getOrderHistory,
   cancelOrder,
-  cancelAllOpenOrders,
+  cancelExitProtection,
   placeManualOrder,
   placeTpSl,
   getSymbolInfo,
@@ -90,7 +90,8 @@ router.post('/trades/:id/close', async (req, res) => {
   const exitSide = trade.side === 'BUY' ? 'SELL' : 'BUY';
 
   // Cancel SL/TP before market exit to avoid double-fill
-  await cancelAllOpenOrders(trade.symbol).catch(() => {});
+  const oldExitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
+  await cancelExitProtection(trade.symbol, oldExitSide).catch(() => {});
 
   // Use real wallet balance — DB quantity may differ from actual after fees
   const baseAsset = trade.symbol.replace(/USDT$|USDC$/, '');
