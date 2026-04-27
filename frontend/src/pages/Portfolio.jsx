@@ -456,6 +456,18 @@ export default function Portfolio() {
                       (o.orderType === 'Limit' && parseFloat(o.price) > 0 && parseFloat(o.triggerPrice) > 0)
                     );
 
+                    // Dead/hit detection (UI-side, polled price). Bybit accepts dead stops
+                    // silently — surface a warning so Fix can market-close.
+                    const cur = currentPrices[t.symbol];
+                    const slDeadInUi = cur && t.stopLoss && (
+                      isBuy ? cur <= t.stopLoss : cur >= t.stopLoss
+                    );
+                    const tpHitInUi = cur && t.takeProfit && (
+                      isBuy ? cur >= t.takeProfit : cur <= t.takeProfit
+                    );
+                    const slNeedsAttention = t.stopLoss && (!hasSlOrder || slDeadInUi);
+                    const tpNeedsAttention = t.takeProfit && (!hasTpOrder || tpHitInUi);
+
                     const tp = new Intl.DateTimeFormat('ru-RU', {
                       timeZone: 'Europe/Moscow',
                       day: '2-digit', month: '2-digit',
@@ -515,20 +527,26 @@ export default function Portfolio() {
                                 <span className="badge badge-loss" title="No sell orders on exchange">⚠ No orders</span>
                               ) : (
                                 <>
-                                  {hasSlOrder && <span className="badge badge-pending" title="Stop-Loss order active">SL ✓</span>}
-                                  {hasTpOrder && <span className="badge badge-win" title="Take-Profit order active">TP ✓</span>}
+                                  {hasSlOrder && (slDeadInUi
+                                    ? <span className="badge badge-loss" title="SL trigger crossed — order won't fire">SL ⚠ DEAD</span>
+                                    : <span className="badge badge-pending" title="Stop-Loss order active">SL ✓</span>
+                                  )}
+                                  {hasTpOrder && (tpHitInUi
+                                    ? <span className="badge badge-warn" title="TP target reached — order should fire">TP ⚠ HIT</span>
+                                    : <span className="badge badge-win" title="Take-Profit order active">TP ✓</span>
+                                  )}
                                   {!hasSlOrder && !hasTpOrder && sellOrders.map((o, i) => (
                                     <span key={i} className="badge badge-warn">{o.stopOrderType || o.orderType}</span>
                                   ))}
                                 </>
                               )}
-                              {((t.stopLoss && !hasSlOrder) || (t.takeProfit && !hasTpOrder)) && (
+                              {(slNeedsAttention || tpNeedsAttention) && (
                                 <button
                                   className="btn btn-ghost"
                                   style={{ fontSize: 10, padding: '2px 6px', color: 'var(--primary)', borderColor: 'var(--primary)' }}
                                   onClick={() => fixProtection(t)}
                                   disabled={fixing === t.id}
-                                  title="Place missing SL/TP on exchange"
+                                  title="Fix missing or dead SL/TP"
                                 >
                                   {fixing === t.id ? '…' : 'Fix'}
                                 </button>

@@ -132,22 +132,14 @@ router.post('/trades/:id/fix-protection', async (req, res) => {
   if (trade.status !== 'OPEN') return res.status(400).json({ error: 'Trade is not open' });
   if (!trade.stopLoss && !trade.takeProfit) return res.status(400).json({ error: 'Trade has no SL/TP configured' });
 
-  const exitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
-  const ordersData = await getOpenOrders(trade.symbol);
-  const orders = ordersData.result?.list || [];
-  const exitOrders = orders.filter(o => o.side === exitSide);
-
-  const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
-  const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
-  if (slPlaced && tpPlaced) return res.json({ ok: true, message: 'Protection already present', slPlaced, tpPlaced });
-
-  // Dead protection guard: if SL trigger already crossed (or TP already reached),
-  // placing a stop on Bybit silently produces a dead order. Market-close instead.
+  // Dead protection guard FIRST — applies regardless of placed state. A trade with
+  // placed-but-dead SL would otherwise hit the "already protected" early-return below
+  // and never get rescued. Bybit accepts dead stop orders silently — they never fire.
   let currentPrice = null;
   try { currentPrice = await getMidPrice(trade.symbol); } catch {}
   if (currentPrice) {
-    const slDead = !slPlaced && isSlDead(trade.side, currentPrice, trade.stopLoss);
-    const tpAlreadyHit = !tpPlaced && isTpHit(trade.side, currentPrice, trade.takeProfit);
+    const slDead = isSlDead(trade.side, currentPrice, trade.stopLoss);
+    const tpAlreadyHit = isTpHit(trade.side, currentPrice, trade.takeProfit);
     if (slDead || tpAlreadyHit) {
       const reason = slDead
         ? `SL ${trade.stopLoss} уже пересечён (current ${currentPrice})`
@@ -174,6 +166,15 @@ router.post('/trades/:id/fix-protection', async (req, res) => {
       return res.json({ ok: true, action: 'emergency_closed', reason, orderId: result?.orderId });
     }
   }
+
+  const exitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
+  const ordersData = await getOpenOrders(trade.symbol);
+  const orders = ordersData.result?.list || [];
+  const exitOrders = orders.filter(o => o.side === exitSide);
+
+  const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
+  const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
+  if (slPlaced && tpPlaced) return res.json({ ok: true, message: 'Protection already present', slPlaced, tpPlaced });
 
   let symbolInfo;
   try { symbolInfo = await getSymbolInfo(trade.symbol); }

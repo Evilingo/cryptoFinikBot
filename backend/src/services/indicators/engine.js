@@ -432,29 +432,15 @@ async function reconcileTpSl() {
   const now = Date.now();
 
   for (const trade of openTrades) {
-    const ageMs = now - new Date(trade.createdAt).getTime();
-    if (ageMs >= AGE_LIMIT_MS) {
-      logger.debug('[TpSlReconciliation] Skipping old trade', { tradeId: trade.id, ageMin: Math.round(ageMs / 60000) });
-      continue;
-    }
-
     try {
-      const ordersData = await getOpenOrders(trade.symbol);
-      const orders = ordersData.result?.list || [];
-      const exitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
-      const exitOrders = orders.filter((o) => o.side === exitSide);
-      const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
-      const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
-
-      if (slPlaced && tpPlaced) continue; // Protection orders are present
-
-      // Dead protection guard: SL trigger already crossed or TP already hit at current price.
-      // Bybit accepts the order silently but it never fires. Emergency market close instead.
+      // Dead protection guard (always, regardless of age): SL trigger already crossed
+      // or TP already hit at current price. Bybit accepts the protection order silently
+      // but it never fires — zombie protection accumulates losses. Emergency close instead.
       let currentPrice = null;
       try { currentPrice = await getMidPrice(trade.symbol); } catch {}
       if (currentPrice) {
-        const slDead = !slPlaced && isSlDead(trade.side, currentPrice, trade.stopLoss);
-        const tpAlreadyHit = !tpPlaced && isTpHit(trade.side, currentPrice, trade.takeProfit);
+        const slDead = isSlDead(trade.side, currentPrice, trade.stopLoss);
+        const tpAlreadyHit = isTpHit(trade.side, currentPrice, trade.takeProfit);
         if (slDead || tpAlreadyHit) {
           const reason = slDead
             ? `SL trigger ${trade.stopLoss} already crossed (current ${currentPrice})`
@@ -487,6 +473,21 @@ async function reconcileTpSl() {
           continue; // skip placeTpSl; userDataStream closes the Trade record on fill
         }
       }
+
+      const ageMs = now - new Date(trade.createdAt).getTime();
+      if (ageMs >= AGE_LIMIT_MS) {
+        logger.debug('[TpSlReconciliation] Skipping old trade for recreate', { tradeId: trade.id, ageMin: Math.round(ageMs / 60000) });
+        continue;
+      }
+
+      const ordersData = await getOpenOrders(trade.symbol);
+      const orders = ordersData.result?.list || [];
+      const exitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
+      const exitOrders = orders.filter((o) => o.side === exitSide);
+      const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
+      const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
+
+      if (slPlaced && tpPlaced) continue; // Protection orders are present
 
       logger.warn('[TpSlReconciliation] Missing TP/SL for OPEN trade — attempting to recreate', { tradeId: trade.id, symbol: trade.symbol });
 
