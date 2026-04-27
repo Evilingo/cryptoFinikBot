@@ -4,7 +4,7 @@ import { logger } from '../../config/logger.js';
 import { analyzeSignal } from '../claude/orchestrator.js';
 import { broadcast } from '../../ws/hub.js';
 import { getKlines, placeOrder, getAccountBalance } from '../exchange/index.js';
-import { placeTpSl, getOpenOrders, getSymbolInfo, getOrderHistory, cancelExitProtection } from '../bybit/rest.js';
+import { placeTpSl, getOpenOrders, getSymbolInfo, getOrderHistory, cancelExitProtection, getMidPrice } from '../bybit/rest.js';
 import { isSlOrder, isTpOrder } from '../bybit/orderMatchers.js';
 import { runClaudePipeline } from '../signals/claudePipeline.js';
 import { sendTelegramNotification } from '../notifications/notifier.js';
@@ -24,6 +24,18 @@ const getDipThreshold = makeSettingCache(
   async () => { const s = await prisma.settings.findUnique({ where: { id: 1 } }); return s?.dipThreshold ?? 10; },
   10,
 );
+
+export function isSlDead(side, currentPrice, slPrice) {
+  if (!slPrice || !currentPrice) return false;
+  if (side === 'BUY') return currentPrice <= slPrice;
+  return currentPrice >= slPrice;
+}
+
+export function isTpHit(side, currentPrice, tpPrice) {
+  if (!tpPrice || !currentPrice) return false;
+  if (side === 'BUY') return currentPrice >= tpPrice;
+  return currentPrice <= tpPrice;
+}
 
 export function getLatestObd(symbol) {
   return obdState.get(symbol)?.current || null;
@@ -435,6 +447,46 @@ async function reconcileTpSl() {
       const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
 
       if (slPlaced && tpPlaced) continue; // Protection orders are present
+
+      // Dead protection guard: SL trigger already crossed or TP already hit at current price.
+      // Bybit accepts the order silently but it never fires. Emergency market close instead.
+      let currentPrice = null;
+      try { currentPrice = await getMidPrice(trade.symbol); } catch {}
+      if (currentPrice) {
+        const slDead = !slPlaced && isSlDead(trade.side, currentPrice, trade.stopLoss);
+        const tpAlreadyHit = !tpPlaced && isTpHit(trade.side, currentPrice, trade.takeProfit);
+        if (slDead || tpAlreadyHit) {
+          const reason = slDead
+            ? `SL trigger ${trade.stopLoss} already crossed (current ${currentPrice})`
+            : `TP target ${trade.takeProfit} already reached (current ${currentPrice})`;
+          logger.warn('[TpSlReconciliation] Dead protection — emergency close', { tradeId: trade.id, reason });
+
+          const oldExitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
+          const closeSide = trade.side === 'BUY' ? 'SELL' : 'BUY';
+
+          await cancelExitProtection(trade.symbol, oldExitSide).catch(() => {});
+
+          const baseAsset = trade.symbol.replace(/USDT$|USDC$/, '');
+          let qty = trade.quantity;
+          try {
+            const coins = await getAccountBalance();
+            const coin = coins.find((c) => c.asset === baseAsset);
+            const realQty = parseFloat(coin?.free || 0);
+            if (realQty > 0) qty = realQty;
+          } catch {}
+
+          try {
+            await placeOrder({ symbol: trade.symbol, side: closeSide, quantity: qty });
+            sendTelegramNotification(
+              `🚨 ${trade.symbol} #${trade.id} — ${reason}\nЗакрыто маркетом во избежание dead SL`,
+              null,
+            ).catch(() => {});
+          } catch (err) {
+            logger.error('[TpSlReconciliation] Emergency close failed', { tradeId: trade.id, error: err.message });
+          }
+          continue; // skip placeTpSl; userDataStream closes the Trade record on fill
+        }
+      }
 
       logger.warn('[TpSlReconciliation] Missing TP/SL for OPEN trade — attempting to recreate', { tradeId: trade.id, symbol: trade.symbol });
 

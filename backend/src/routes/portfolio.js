@@ -11,8 +11,10 @@ import {
   placeManualOrder,
   placeTpSl,
   getSymbolInfo,
+  getMidPrice,
 } from '../services/bybit/rest.js';
 import { isSlOrder, isTpOrder } from '../services/bybit/orderMatchers.js';
+import { isSlDead, isTpHit } from '../services/indicators/engine.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -138,6 +140,40 @@ router.post('/trades/:id/fix-protection', async (req, res) => {
   const slPlaced = !trade.stopLoss || exitOrders.some(isSlOrder);
   const tpPlaced = !trade.takeProfit || exitOrders.some(isTpOrder);
   if (slPlaced && tpPlaced) return res.json({ ok: true, message: 'Protection already present', slPlaced, tpPlaced });
+
+  // Dead protection guard: if SL trigger already crossed (or TP already reached),
+  // placing a stop on Bybit silently produces a dead order. Market-close instead.
+  let currentPrice = null;
+  try { currentPrice = await getMidPrice(trade.symbol); } catch {}
+  if (currentPrice) {
+    const slDead = !slPlaced && isSlDead(trade.side, currentPrice, trade.stopLoss);
+    const tpAlreadyHit = !tpPlaced && isTpHit(trade.side, currentPrice, trade.takeProfit);
+    if (slDead || tpAlreadyHit) {
+      const reason = slDead
+        ? `SL ${trade.stopLoss} уже пересечён (current ${currentPrice})`
+        : `TP ${trade.takeProfit} уже достигнут (current ${currentPrice})`;
+      logger.warn('Fix protection: dead protection detected, market closing', { tradeId: id, reason });
+
+      const oldExitSide = trade.side === 'BUY' ? 'Sell' : 'Buy';
+      const closeSide = trade.side === 'BUY' ? 'SELL' : 'BUY';
+
+      await cancelExitProtection(trade.symbol, oldExitSide).catch(() => {});
+
+      const baseAsset = trade.symbol.replace(/USDT$|USDC$/, '');
+      let qty = trade.quantity;
+      try {
+        const coins = await getAccountBalance();
+        const coin = coins.find((c) => c.asset === baseAsset);
+        const realQty = parseFloat(coin?.free || 0);
+        if (realQty > 0) qty = realQty;
+      } catch {}
+
+      const result = await placeManualOrder({
+        symbol: trade.symbol, side: closeSide, orderType: 'Market', qty,
+      });
+      return res.json({ ok: true, action: 'emergency_closed', reason, orderId: result?.orderId });
+    }
+  }
 
   let symbolInfo;
   try { symbolInfo = await getSymbolInfo(trade.symbol); }

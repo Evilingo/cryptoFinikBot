@@ -131,8 +131,13 @@ export default function Portfolio() {
     setFixing(trade.id);
     try {
       const { data } = await api.post(`/portfolio/trades/${trade.id}/fix-protection`);
-      const added = [data.slAdded && 'SL', data.tpAdded && 'TP'].filter(Boolean).join(' + ');
-      showStatus(true, added ? `${trade.symbol}: ${added} added` : `${trade.symbol}: already protected`);
+      if (data.action === 'emergency_closed') {
+        showStatus(true, `${trade.symbol}: emergency-closed (${data.reason})`);
+        setBotTrades(prev => prev.map(t => t.id === trade.id ? { ...t, status: 'CLOSING' } : t));
+      } else {
+        const added = [data.slAdded && 'SL', data.tpAdded && 'TP'].filter(Boolean).join(' + ');
+        showStatus(true, added ? `${trade.symbol}: ${added} added` : `${trade.symbol}: already protected`);
+      }
       const [ordRes] = await Promise.allSettled([api.get('/portfolio/orders/open')]);
       if (ordRes.status === 'fulfilled') setOpenOrders(ordRes.value.data || []);
     } catch (err) {
