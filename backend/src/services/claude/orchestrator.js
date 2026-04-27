@@ -96,6 +96,30 @@ function formatHigherTf(trend5m, trend15m) {
   return `${fmt('5m', trend5m)} | ${fmt('15m', trend15m)}`;
 }
 
+function obviousWaitForOfi(ofiRatio, trend5m, trend15m, atr15m) {
+  if (atr15m?.pct != null && atr15m.pct < 0.15) {
+    return `ATR(15m) ${atr15m.pct}% < 0.15% — рынок спит, не торгуем`;
+  }
+  if (ofiRatio >= 35 && ofiRatio <= 65) {
+    return `OFI ratio ${ofiRatio}% в нейтральной зоне (35-65%) — не сигнал`;
+  }
+  if (
+    trend5m?.direction === 'FLAT' &&
+    trend15m?.direction === 'FLAT' &&
+    atr15m?.pct != null && atr15m.pct < 0.30
+  ) {
+    return `Оба ТФ FLAT + ATR ${atr15m.pct}% < 0.30% — момента нет`;
+  }
+  return null;
+}
+
+function obviousWaitForObd(atr15m) {
+  if (atr15m?.pct != null && atr15m.pct < 0.15) {
+    return `ATR(15m) ${atr15m.pct}% < 0.15% — слишком низкая волатильность для OBD mean-reversion`;
+  }
+  return null;
+}
+
 // Комиссия Binance Spot round-trip
 const ROUND_TRIP_FEE = 0.002; // 0.2%
 // Минимальный чистый профит после комиссий
@@ -247,6 +271,27 @@ export async function analyzeOfiSignal(pair, currentPrice, ofiDirection, ofiRati
     getKlines(pair.monitorSymbol, pair.timeframe || '1m', 20).catch(() => []),
   ]);
 
+  const ofiPrefilterReason = obviousWaitForOfi(ofiRatio, trend5m, trend15m, atr15m);
+  if (ofiPrefilterReason) {
+    logger.info('OFI signal pre-filtered as WAIT (no Claude call)', {
+      symbol: pair.monitorSymbol,
+      ofiRatio,
+      reason: ofiPrefilterReason,
+    });
+    return {
+      direction: 'WAIT',
+      confidence: 0,
+      analysis: `[Pre-filter] ${ofiPrefilterReason}`,
+      suggestedSl: null,
+      suggestedTp: null,
+      rsi: null,
+      trend5m: trend5m?.direction ?? null,
+      trend15m: trend15m?.direction ?? null,
+      atr: atr15m?.value ?? null,
+      atrPct: atr15m?.pct ?? null,
+    };
+  }
+
   const tech = candles.length ? calcTechnicals(candles) : {};
   const techSection = formatTechnicals(tech);
 
@@ -303,6 +348,26 @@ export async function analyzeSignal(pair, obd, candles, currentPrice) {
     getSystemPrompt(),
     fetchHigherTimeframes(pair.monitorSymbol),
   ]);
+
+  const obdPrefilterReason = obviousWaitForObd(atr15m);
+  if (obdPrefilterReason) {
+    logger.info('OBD signal pre-filtered as WAIT (no Claude call)', {
+      symbol: pair.monitorSymbol,
+      reason: obdPrefilterReason,
+    });
+    return {
+      direction: 'WAIT',
+      confidence: 0,
+      analysis: `[Pre-filter] ${obdPrefilterReason}`,
+      suggestedSl: null,
+      suggestedTp: null,
+      rsi: null,
+      trend5m: trend5m?.direction ?? null,
+      trend15m: trend15m?.direction ?? null,
+      atr: atr15m?.value ?? null,
+      atrPct: atr15m?.pct ?? null,
+    };
+  }
 
   const tech = calcTechnicals(candles);
   const techSection = formatTechnicals(tech);
