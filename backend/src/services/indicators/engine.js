@@ -41,6 +41,68 @@ export function getLatestObd(symbol) {
   return obdState.get(symbol)?.current || null;
 }
 
+/**
+ * Trade-state pre-filter: skip Claude when the result is guaranteed no-op
+ * (autoTrade ON, max trades reached, no chance to open a new one or reverse-close).
+ * Returns {skip: false} when autoTrade is off OR slot is free OR reverse-close is possible.
+ */
+export async function shouldSkipClaude(pair, signalDirection) {
+  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+  if (!settings?.autoTrade) return { skip: false, reason: '' };
+
+  const existing = await prisma.trade.findFirst({
+    where: { status: { in: ['OPEN', 'PENDING'] } },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!existing) return { skip: false, reason: '' };
+
+  const openCount = await prisma.trade.count({ where: { status: { in: ['OPEN', 'PENDING'] } } });
+  if (openCount < (settings.maxOpenTrades ?? 1)) return { skip: false, reason: '' };
+
+  if (existing.symbol !== pair.tradeSymbol) {
+    return { skip: true, reason: `Already ${existing.side} on ${existing.symbol}, maxOpenTrades reached` };
+  }
+  const sameDirection = (existing.side === 'BUY' && signalDirection === 'LONG') ||
+                        (existing.side === 'SELL' && signalDirection === 'SHORT');
+  if (sameDirection) {
+    return { skip: true, reason: `Already ${existing.side} on ${pair.tradeSymbol}, same direction (${signalDirection})` };
+  }
+  return { skip: false, reason: '' };
+}
+
+export async function applyPreFilterSkip(signalId, pair, midPrice, signalDirection, reason, broadcastExtra = {}) {
+  await prisma.signal.update({
+    where: { id: signalId },
+    data: {
+      direction: 'WAIT',
+      confidence: 0,
+      claudeAnalysis: `[Pre-filter] ${reason}`,
+      outcome: 'WAIT',
+    },
+  });
+  broadcast({
+    type: 'SIGNAL_UPDATE',
+    signal: {
+      id: signalId,
+      monitorSymbol: pair.monitorSymbol,
+      tradeSymbol: pair.tradeSymbol,
+      direction: 'WAIT',
+      confidence: 0,
+      claudeAnalysis: `[Pre-filter] ${reason}`,
+      suggestedSl: null,
+      suggestedTp: null,
+      price: midPrice,
+      ...broadcastExtra,
+    },
+  });
+  logger.info('Trade-state pre-filter: skipping Claude call', {
+    signalId,
+    pair: pair.tradeSymbol,
+    signalDirection,
+    reason,
+  });
+}
+
 export async function processObdUpdate(pair, obd, midPrice) {
   const symbol = pair.monitorSymbol;
   const state = obdState.get(symbol) || { current: null, previous: null, history: [] };
@@ -126,6 +188,13 @@ export async function processObdUpdate(pair, obd, midPrice) {
 }
 
 async function analyzeWithClaude(signalId, pair, obd, midPrice, signalDirection) {
+  const pre = await shouldSkipClaude(pair, signalDirection);
+  if (pre.skip) {
+    await applyPreFilterSkip(signalId, pair, midPrice, signalDirection, pre.reason, {
+      obd1: obd.obd1, obd2: obd.obd2, obd3: obd.obd3, obd4: obd.obd4,
+    });
+    return;
+  }
   await runClaudePipeline(signalId, pair, midPrice, {
     getAnalysis: async (skipClaude) => {
       if (skipClaude) return { direction: signalDirection, confidence: 80, analysis: 'Claude skipped (test mode)', suggestedSl: null, suggestedTp: null };

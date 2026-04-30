@@ -9,7 +9,7 @@ import { makeSettingCache } from '../../db/settingsCache.js';
 import { logger } from '../../config/logger.js';
 import { analyzeOfiSignal } from '../claude/orchestrator.js';
 import { getMidPrice } from '../exchange/index.js';
-import { executeAutoTrade } from './engine.js';
+import { executeAutoTrade, shouldSkipClaude, applyPreFilterSkip } from './engine.js';
 import { runClaudePipeline } from '../signals/claudePipeline.js';
 import { broadcast } from '../../ws/hub.js';
 
@@ -122,6 +122,13 @@ export async function processAggTrade(pair, { isBuyerMaker, price, qty }) {
 }
 
 async function analyzeOfiWithClaude(signalId, pair, midPrice, signalDirection, ofiRatio) {
+  const pre = await shouldSkipClaude(pair, signalDirection);
+  if (pre.skip) {
+    await applyPreFilterSkip(signalId, pair, midPrice, signalDirection, pre.reason, {
+      strategy: 'OFI', ofiRatio,
+    });
+    return;
+  }
   await runClaudePipeline(signalId, pair, midPrice, {
     getAnalysis: async (skipClaude) => {
       if (skipClaude) return { direction: signalDirection, confidence: 80, analysis: 'Claude skipped (test mode)', suggestedSl: null, suggestedTp: null };

@@ -694,6 +694,14 @@ clearTimeout(timer);
 
 ---
 
+### ARCH-07 — `outcome: 'WAIT'` нестандартное значение, не покрыто analytics-фильтрами по `outcome.notIn`
+**Файлы:** `backend/src/services/signals/tracker.js:109,426,469`, `backend/src/services/indicators/engine.js:applyPreFilterSkip`
+**Приоритет:** LOW (future-proofing)
+**Проблема:** `applyPreFilterSkip` (cost trade-state pre-filter) и `claudePipeline.js:57` (Claude WAIT-ответ) ставят `outcome: 'WAIT'` — нестандартное значение в схеме (`WIN|LOSS|BREAKEVEN|TIMEOUT|EXPIRED|null`). Сейчас аналитика фильтрует pre-filtered/WAIT сигналы через `direction: { not: 'WAIT' }` — работает корректно. Но если кто-то расширит фильтр и снимет `direction != 'WAIT'`, эти сигналы попадут в винрейт.
+**Исправление:** При расширении analytics — добавить `'WAIT'` в `outcome: { notIn: [null, 'EXPIRED', 'TIMEOUT', 'WAIT'] }` явно. Или формализовать enum в schema.prisma.
+
+---
+
 ### BUG-36 — `maxOpenTrades > 1` на одной базовой монете → race на free balance в Phase 2
 **Файлы:** `backend/src/services/indicators/engine.js` (Phase 2), `backend/src/services/bybit/rest.js` (placeManualOrder)
 **Приоритет:** MEDIUM (latent — пока `maxOpenTrades=1` неактивен)
