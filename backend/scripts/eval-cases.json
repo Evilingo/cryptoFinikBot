@@ -1,0 +1,245 @@
+[
+  {
+    "id": "case-01-btc-obd-overbought-rsi",
+    "strategy": "OBD",
+    "context": "Реальный сигнал из логов 2026-04-28: BTC OBD обнаружил SHORT-сетап, RSI=75.74 в перекупленности. Ожидаем WAIT (правило: RSI>70 + крупные бычьи свечи)",
+    "input": {
+      "pair": { "monitorSymbol": "BTCUSDT", "tradeSymbol": "BTCUSDT", "timeframe": "1m" },
+      "currentPrice": 78604.95,
+      "obd": { "obd1": 23.55, "obd2": 30.24, "obd3": 48.58, "obd4": 54.71 },
+      "trend5m": { "direction": "DOWN", "changePct": -0.18 },
+      "trend15m": { "direction": "UP", "changePct": 0.32 },
+      "atr15m": { "value": 156.8, "pct": 0.20 },
+      "tech": {
+        "rsi": 75.74,
+        "atr": { "value": 38.4, "pct": 0.05 },
+        "volumeTrend": { "direction": "RISING", "changePct": 12 },
+        "recentCandles": [
+          { "type": "bullish", "bodyPct": 78, "close": 78540.5 },
+          { "type": "bullish", "bodyPct": 65, "close": 78580.2 },
+          { "type": "bullish", "bodyPct": 72, "close": 78604.95 }
+        ]
+      }
+    },
+    "expected": { "direction": "WAIT", "minConfidence": 0, "maxConfidence": 50 }
+  },
+  {
+    "id": "case-02-btc-obd-oversold-rsi",
+    "strategy": "OBD",
+    "context": "BTC OBD LONG, RSI=22.93 экстремальная перепродажа. Должен быть LONG с высоким confidence (правило 'RSI<30 +10' и 'OBD просели → восстанавливаются')",
+    "input": {
+      "pair": { "monitorSymbol": "BTCUSDT", "tradeSymbol": "BTCUSDT", "timeframe": "1m" },
+      "currentPrice": 78102.15,
+      "obd": { "obd1": 31.4, "obd2": 28.9, "obd3": 36.2, "obd4": 41.5 },
+      "trend5m": { "direction": "DOWN", "changePct": -0.42 },
+      "trend15m": { "direction": "DOWN", "changePct": -0.51 },
+      "atr15m": { "value": 178.2, "pct": 0.23 },
+      "tech": {
+        "rsi": 22.93,
+        "atr": { "value": 42.1, "pct": 0.05 },
+        "volumeTrend": { "direction": "RISING", "changePct": 25 },
+        "recentCandles": [
+          { "type": "bearish", "bodyPct": 75, "close": 78180.0 },
+          { "type": "bearish", "bodyPct": 68, "close": 78130.5 },
+          { "type": "doji", "bodyPct": 18, "close": 78102.15 }
+        ]
+      }
+    },
+    "expected": { "direction": "LONG", "minConfidence": 60, "maxConfidence": 100 }
+  },
+  {
+    "id": "case-03-eth-obd-conflict-trends",
+    "strategy": "OBD",
+    "context": "ETH OBD конфликт TF: 5m DOWN, 15m UP. Признак неопределённости. Ожидаем WAIT или умеренный confidence",
+    "input": {
+      "pair": { "monitorSymbol": "ETHUSDT", "tradeSymbol": "ETHUSDT", "timeframe": "1m" },
+      "currentPrice": 2304.82,
+      "obd": { "obd1": 45.2, "obd2": 51.8, "obd3": 49.4, "obd4": 47.1 },
+      "trend5m": { "direction": "DOWN", "changePct": -0.25 },
+      "trend15m": { "direction": "UP", "changePct": 0.31 },
+      "atr15m": { "value": 5.9, "pct": 0.26 },
+      "tech": {
+        "rsi": 48.5,
+        "atr": { "value": 1.2, "pct": 0.05 },
+        "volumeTrend": { "direction": "FLAT", "changePct": 2 },
+        "recentCandles": [
+          { "type": "bullish", "bodyPct": 35, "close": 2306.1 },
+          { "type": "bearish", "bodyPct": 42, "close": 2305.4 },
+          { "type": "bearish", "bodyPct": 28, "close": 2304.82 }
+        ]
+      }
+    },
+    "expected": { "direction": "WAIT", "minConfidence": 30, "maxConfidence": 60 }
+  },
+  {
+    "id": "case-04-sol-obd-flat-no-momentum",
+    "strategy": "OBD",
+    "context": "SOL OBD при флэте на 5m, восходящем 15m с растущим объёмом. Должен пройти WAIT или LONG. confidence в средней зоне",
+    "input": {
+      "pair": { "monitorSymbol": "SOLUSDT", "tradeSymbol": "SOLUSDT", "timeframe": "1m" },
+      "currentPrice": 84.51,
+      "obd": { "obd1": 38.5, "obd2": 42.1, "obd3": 51.8, "obd4": 55.2 },
+      "trend5m": { "direction": "FLAT", "changePct": 0.05 },
+      "trend15m": { "direction": "UP", "changePct": 0.41 },
+      "atr15m": { "value": 0.21, "pct": 0.25 },
+      "tech": {
+        "rsi": 52.3,
+        "atr": { "value": 0.04, "pct": 0.05 },
+        "volumeTrend": { "direction": "RISING", "changePct": 57 },
+        "recentCandles": [
+          { "type": "bullish", "bodyPct": 55, "close": 84.45 },
+          { "type": "doji", "bodyPct": 12, "close": 84.48 },
+          { "type": "bullish", "bodyPct": 48, "close": 84.51 }
+        ]
+      }
+    },
+    "expected": { "direction": "WAIT", "minConfidence": 50, "maxConfidence": 80 }
+  },
+  {
+    "id": "case-05-ofi-strong-long-trend-aligned",
+    "strategy": "OFI",
+    "context": "OFI LONG ratio 85% + 15m тренд UP — сильный momentum. Должен быть LONG с conf>=70",
+    "input": {
+      "pair": { "monitorSymbol": "BTCUSDT", "tradeSymbol": "BTCUSDT", "timeframe": "1m" },
+      "currentPrice": 78252.65,
+      "ofiDirection": "LONG",
+      "ofiRatio": 85,
+      "trend5m": { "direction": "UP", "changePct": 0.18 },
+      "trend15m": { "direction": "UP", "changePct": 0.41 },
+      "atr15m": { "value": 158.4, "pct": 0.20 },
+      "tech": {
+        "rsi": 58.2,
+        "atr": { "value": 39.1, "pct": 0.05 },
+        "volumeTrend": { "direction": "RISING", "changePct": 35 },
+        "recentCandles": [
+          { "type": "bullish", "bodyPct": 62, "close": 78180.0 },
+          { "type": "bullish", "bodyPct": 71, "close": 78220.5 },
+          { "type": "bullish", "bodyPct": 58, "close": 78252.65 }
+        ]
+      }
+    },
+    "expected": { "direction": "LONG", "minConfidence": 70, "maxConfidence": 100 }
+  },
+  {
+    "id": "case-06-ofi-weak-neutral-zone",
+    "strategy": "OFI",
+    "context": "OFI ratio 29% — слабый SHORT-сигнал, но не явный (не <25). Ожидаем WAIT или SHORT с низким confidence",
+    "input": {
+      "pair": { "monitorSymbol": "BNBUSDT", "tradeSymbol": "BNBUSDT", "timeframe": "1m" },
+      "currentPrice": 620.65,
+      "ofiDirection": "SHORT",
+      "ofiRatio": 29,
+      "trend5m": { "direction": "FLAT", "changePct": -0.02 },
+      "trend15m": { "direction": "FLAT", "changePct": 0.08 },
+      "atr15m": { "value": 1.85, "pct": 0.30 },
+      "tech": {
+        "rsi": 49.8,
+        "atr": { "value": 0.42, "pct": 0.07 },
+        "volumeTrend": { "direction": "FLAT", "changePct": -3 },
+        "recentCandles": [
+          { "type": "doji", "bodyPct": 15, "close": 620.7 },
+          { "type": "bearish", "bodyPct": 35, "close": 620.5 },
+          { "type": "doji", "bodyPct": 22, "close": 620.65 }
+        ]
+      }
+    },
+    "expected": { "direction": "WAIT", "minConfidence": 0, "maxConfidence": 55 }
+  },
+  {
+    "id": "case-07-ofi-extreme-rsi-against",
+    "strategy": "OFI",
+    "context": "OFI LONG 68% но RSI=18.31 — экстремальная перепроданность УЖЕ отыграна. Правило промпта: 'RSI<20 + OFI LONG → WAIT (поздно)'",
+    "input": {
+      "pair": { "monitorSymbol": "ETHUSDT", "tradeSymbol": "ETHUSDT", "timeframe": "1m" },
+      "currentPrice": 2305.67,
+      "ofiDirection": "LONG",
+      "ofiRatio": 68,
+      "trend5m": { "direction": "DOWN", "changePct": -0.41 },
+      "trend15m": { "direction": "UP", "changePct": 0.18 },
+      "atr15m": { "value": 6.1, "pct": 0.27 },
+      "tech": {
+        "rsi": 18.31,
+        "atr": { "value": 1.5, "pct": 0.06 },
+        "volumeTrend": { "direction": "RISING", "changePct": 45 },
+        "recentCandles": [
+          { "type": "bearish", "bodyPct": 78, "close": 2310.5 },
+          { "type": "bearish", "bodyPct": 65, "close": 2307.2 },
+          { "type": "bearish", "bodyPct": 52, "close": 2305.67 }
+        ]
+      }
+    },
+    "expected": { "direction": "WAIT", "minConfidence": 0, "maxConfidence": 50 }
+  },
+  {
+    "id": "case-08-obd-clean-short-setup",
+    "strategy": "OBD",
+    "context": "BTC OBD выросли (60-80) → откат. Классический SHORT setup. RSI 65-70. Ожидаем SHORT с conf 60-80",
+    "input": {
+      "pair": { "monitorSymbol": "BTCUSDT", "tradeSymbol": "BTCUSDT", "timeframe": "1m" },
+      "currentPrice": 78751.75,
+      "obd": { "obd1": 72.5, "obd2": 68.4, "obd3": 65.1, "obd4": 61.8 },
+      "trend5m": { "direction": "DOWN", "changePct": -0.12 },
+      "trend15m": { "direction": "FLAT", "changePct": 0.05 },
+      "atr15m": { "value": 168.5, "pct": 0.22 },
+      "tech": {
+        "rsi": 67.2,
+        "atr": { "value": 41.2, "pct": 0.05 },
+        "volumeTrend": { "direction": "FALLING", "changePct": -15 },
+        "recentCandles": [
+          { "type": "bullish", "bodyPct": 58, "close": 78810.0 },
+          { "type": "doji", "bodyPct": 18, "close": 78790.5 },
+          { "type": "bearish", "bodyPct": 42, "close": 78751.75 }
+        ]
+      }
+    },
+    "expected": { "direction": "SHORT", "minConfidence": 50, "maxConfidence": 85 }
+  },
+  {
+    "id": "case-09-obd-clean-long-setup",
+    "strategy": "OBD",
+    "context": "ETH OBD просели (20-40) → восстановление. Классический LONG setup. RSI ~35. Ожидаем LONG с conf 60-80",
+    "input": {
+      "pair": { "monitorSymbol": "ETHUSDT", "tradeSymbol": "ETHUSDT", "timeframe": "1m" },
+      "currentPrice": 2306.56,
+      "obd": { "obd1": 28.5, "obd2": 32.1, "obd3": 38.8, "obd4": 41.2 },
+      "trend5m": { "direction": "DOWN", "changePct": -0.18 },
+      "trend15m": { "direction": "FLAT", "changePct": -0.05 },
+      "atr15m": { "value": 5.8, "pct": 0.25 },
+      "tech": {
+        "rsi": 35.4,
+        "atr": { "value": 1.3, "pct": 0.06 },
+        "volumeTrend": { "direction": "RISING", "changePct": 22 },
+        "recentCandles": [
+          { "type": "bearish", "bodyPct": 65, "close": 2310.0 },
+          { "type": "bearish", "bodyPct": 48, "close": 2308.5 },
+          { "type": "doji", "bodyPct": 15, "close": 2306.56 }
+        ]
+      }
+    },
+    "expected": { "direction": "LONG", "minConfidence": 50, "maxConfidence": 85 }
+  },
+  {
+    "id": "case-10-obd-low-volatility-flat",
+    "strategy": "OBD",
+    "context": "BNB OBD в флэте, ATR 0.18% низкий. Должен дойти до WAIT по правилу 'ATR<0.15 -10' (хотя 0.18 чуть выше threshold)",
+    "input": {
+      "pair": { "monitorSymbol": "BNBUSDT", "tradeSymbol": "BNBUSDT", "timeframe": "1m" },
+      "currentPrice": 624.95,
+      "obd": { "obd1": 50.2, "obd2": 49.8, "obd3": 51.1, "obd4": 49.5 },
+      "trend5m": { "direction": "FLAT", "changePct": 0.02 },
+      "trend15m": { "direction": "FLAT", "changePct": -0.03 },
+      "atr15m": { "value": 1.12, "pct": 0.18 },
+      "tech": {
+        "rsi": 50.5,
+        "atr": { "value": 0.25, "pct": 0.04 },
+        "volumeTrend": { "direction": "FLAT", "changePct": 1 },
+        "recentCandles": [
+          { "type": "doji", "bodyPct": 12, "close": 624.9 },
+          { "type": "doji", "bodyPct": 8, "close": 624.92 },
+          { "type": "doji", "bodyPct": 14, "close": 624.95 }
+        ]
+      }
+    },
+    "expected": { "direction": "WAIT", "minConfidence": 30, "maxConfidence": 60 }
+  }
+]
